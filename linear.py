@@ -1,13 +1,13 @@
+from time import time
 import numpy as np
 import scipy
-from scipy.sparse import csr_matrix, lil_matrix, diags
-from scipy.special import gamma
-from findiff import FinDiff, Identity, PDE, BoundaryConditions
+from sksparse.cholmod import cholesky
+from scipy.sparse import csr_matrix, lil_matrix
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF
 import matplotlib.pyplot as plt
 from matplotlib import animation
-from IPython.display import HTML
+from IPython.core.display import HTML
 
 def mse(x1, x2):
     return np.mean((x1 - x2) ** 2)
@@ -95,55 +95,53 @@ def sample_observations(u, obs_count, obs_noise):
     obs_dict = {tuple(idx): u[tuple(idx)]+obs_noise*np.random.randn() for idx in idxs}
     return obs_dict
 
-def fit_pde_gp(u, obs_dict, X_test, dx, dt, obs_noise, diff_op):
-    # Process args
-    shape = u.shape
-    obs_idxs = np.array(list(obs_dict.keys()), dtype=int)
-
+def fit_spde_grf(u, obs_dict, X_test, dx, dt, obs_noise, diff_op):
     # Construct precision matrix corresponding to the linear differential operator
-    mat = operator_to_matrix(diff_op, shape, interior_only=False)
+    mat = operator_to_matrix(diff_op, u.shape, interior_only=False)
     prior_precision = mat.T @ mat
 
-    # Compute posterior mean and covariance
+    return _fit_grf(u, obs_dict, obs_noise, prior_precision)
+
+def _fit_grf(ground_truth, obs_dict, obs_noise, prior_precision):
+    # Process args
+    shape = ground_truth.shape
+    obs_idxs = np.array(list(obs_dict.keys()), dtype=int)
+
+    # Construct posterior precision and posterior shift
     N = np.prod(shape)
-    grid_indices = get_domain_indices(shape)
+    grid_idxs = get_domain_indices(shape)
     boundary_idxs = get_boundary_indices(shape)
     mask = np.zeros(N)
     for idx in obs_idxs:
-        mask[grid_indices[tuple(idx)]] = 1
+        mask[grid_idxs[tuple(idx)]] = 1
+    obs_mask = mask.copy().astype(bool)
     for idx in boundary_idxs:
         mask[idx] = 1
     posterior_precision = prior_precision + csr_matrix(obs_noise**(-2) * np.diag(mask))
     posterior_shift = np.zeros(np.prod(shape))
     for idx in obs_idxs:
-        posterior_shift[grid_indices[tuple(idx)]] = obs_dict[tuple(idx)]/obs_noise**2
-
+        posterior_shift[grid_idxs[tuple(idx)]] = obs_dict[tuple(idx)]/obs_noise**2
     for idx in boundary_idxs:
-        posterior_shift[idx] = u.flatten()[idx]/obs_noise**2
-    # plt.imshow(posterior_shift.reshape(shape))
-    # plt.show()
-    posterior_precision_chol = scipy.sparse.linalg.splu(posterior_precision)
-    posterior_shift = posterior_shift.T
-    posterior_mean = posterior_precision_chol.solve(posterior_shift)
-    posterior_mean = posterior_mean.reshape(shape)
-    posterior_cov = scipy.sparse.linalg.inv(posterior_precision)
-    posterior_std = np.sqrt(posterior_cov.diagonal()).reshape(shape)
+        posterior_shift[idx] = ground_truth.flatten()[idx]/obs_noise**2
     
-    u_diff = (u - posterior_mean).flatten()
-    u_diff_transformed = posterior_precision_chol.solve(u_diff)
-    # log_det = -np.sum(np.log(np.diagonal(posterior_precision_chol.U.todense())))  # Cholesky decomposition of the precision matrix
-    # chol = posterior_precision_chol.L.dot(diags(posterior_precision_chol.U.diagonal()**0.5))
-    chol_precision = np.linalg.cholesky(posterior_precision.todense())
-    log_det = 2 * np.sum(np.log(np.diag(chol_precision)))
-    # print(log_det)
-    nll = 0.5 * (log_det + u_diff_transformed.T @ u_diff_transformed + N * np.log(2 * np.pi))
+    # Compute posterior mean and covariance
+    posterior_precision_cholesky = cholesky(posterior_precision)
+    posterior_mean = posterior_precision_cholesky(posterior_shift).reshape(shape)
+    posterior_var = posterior_precision_cholesky.spinv().diagonal().reshape(shape)
+    posterior_std = np.sqrt(posterior_var)
 
-    return posterior_mean, posterior_std, nll
+    # Compute log marginal likelihood
+    P = posterior_precision[obs_mask, :][:, obs_mask]
+    L = cholesky(P)
+    y = np.array([obs_dict[tuple(idx)] for idx in obs_idxs])
+    n = len(y)
+    log_marginal_likelihood = 0.5 * (L.logdet() - y.T @ P @ y - n * np.log(2 * np.pi))
+    return posterior_mean, posterior_std, log_marginal_likelihood
 
 def fit_rbf_gp(u, obs_dict, X_test, dx, dt, obs_noise):
     shape = u.shape
     # Extract the observations from the dictionary
-    obs_idx = np.array(list(obs_dict.keys()), dtype=np.float)
+    obs_idx = np.array(list(obs_dict.keys()), dtype=float)
     obs_idx[:,0] *= dt
     obs_idx[:,1] *= dx
     obs_vals = list(obs_dict.values())
@@ -181,7 +179,7 @@ def fit_rbf_gp(u, obs_dict, X_test, dx, dt, obs_noise):
 
 def plot_gp_2d(gt, gp_mean, gp_std, obs_idx, output_filename, mean_vmin, mean_vmax,
                std_vmin, std_vmax, diff_vmin, diff_vmax):
-    fig, axs = plt.subplots(1, 4, figsize=(15,5))
+    fig, axs = plt.subplots(1, 4, figsize=(15,5.3))
     gtim = axs[0].imshow(gt, vmin=mean_vmin, vmax=mean_vmax)
     axs[0].set_title('ground truth')
     axs[0].set_xlabel('time')
@@ -204,9 +202,8 @@ def plot_gp_2d(gt, gp_mean, gp_std, obs_idx, output_filename, mean_vmin, mean_vm
     axs[3].set_xlabel('time')
     axs[3].set_ylabel('x')
     fig.colorbar(diffim)
-    fig.tight_layout()
+    plt.tight_layout()
     plt.savefig(output_filename, dpi=300)
-    plt.show()
 
 def create_HTML_animation(x, u, posterior_mean_1, posterior_std_1, posterior_mean_2,
                           posterior_std_2, dt, output_filename):    
