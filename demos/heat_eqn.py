@@ -1,7 +1,10 @@
+import os
+import sys
 import numpy as np
 from findiff import FinDiff, PDE, BoundaryConditions
 
-import linear
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from src import linear
 
 # Generate data from heat equation
 

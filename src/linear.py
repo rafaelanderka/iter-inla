@@ -106,6 +106,7 @@ def _fit_grf(ground_truth, obs_dict, obs_noise, prior_precision):
     # Process args
     shape = ground_truth.shape
     obs_idxs = np.array(list(obs_dict.keys()), dtype=int)
+    obs_noise_inv_sq = obs_noise**(-2)
 
     # Construct posterior precision and posterior shift
     N = np.prod(shape)
@@ -117,10 +118,10 @@ def _fit_grf(ground_truth, obs_dict, obs_noise, prior_precision):
     obs_mask = mask.copy().astype(bool)
     for idx in boundary_idxs:
         mask[idx] = 1
-    posterior_precision = prior_precision + csr_matrix(obs_noise**(-2) * np.diag(mask))
+    posterior_precision = prior_precision + csr_matrix(obs_noise_inv_sq * np.diag(mask))
     posterior_shift = np.zeros(np.prod(shape))
     for idx in obs_idxs:
-        posterior_shift[grid_idxs[tuple(idx)]] = obs_dict[tuple(idx)]/obs_noise**2
+        posterior_shift[grid_idxs[tuple(idx)]] = obs_dict[tuple(idx)] * obs_noise_inv_sq
     for idx in boundary_idxs:
         posterior_shift[idx] = ground_truth.flatten()[idx]/obs_noise**2
     
