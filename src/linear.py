@@ -1,8 +1,8 @@
 from time import time
 import numpy as np
-import scipy
-from sksparse.cholmod import cholesky
-from scipy.sparse import csr_matrix, lil_matrix
+from sksparse.cholmod import cholesky, cholesky_AAt
+from scipy import sparse
+from jax.experimental import sparse as jsparse
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF
 import matplotlib.pyplot as plt
@@ -17,17 +17,19 @@ def swap_cols(arr, i=0, j=1):
     new.T[[i, j]] = new.T[[j, i]]
     return new
 
+def scipy2jax_csr(A):
+    return jsparse.CSR((A.data, A.indices, A.indptr), shape=A.shape)
+
 def operator_to_matrix(diff_op, shape, interior_only=True):
     """
     Convert a findiff operator into a precision matrix
     """
-    mat = lil_matrix(diff_op.matrix(shape))
+    mat = diff_op.matrix(shape)
     # mat = apply_boundary_conditions(mat, shape)
     if interior_only:
         interior_idxs = get_interior_indices(shape)
         mat = mat[interior_idxs]
         mat = mat[:, interior_idxs]
-    mat = csr_matrix(mat)
     return mat
 
 def apply_boundary_conditions(mat, shape):
@@ -114,11 +116,11 @@ def _fit_grf(ground_truth, obs_dict, obs_noise, prior_precision):
     boundary_idxs = get_boundary_indices(shape)
     mask = np.zeros(N)
     for idx in obs_idxs:
-        mask[grid_idxs[tuple(idx)]] = 1
+        mask[grid_idxs[tuple(idx)]] = obs_noise_inv_sq
     obs_mask = mask.copy().astype(bool)
     for idx in boundary_idxs:
-        mask[idx] = 1
-    posterior_precision = prior_precision + csr_matrix(obs_noise_inv_sq * np.diag(mask))
+        mask[idx] = obs_noise_inv_sq
+    posterior_precision = prior_precision + sparse.diags(mask, format="csr")
     posterior_shift = np.zeros(np.prod(shape))
     for idx in obs_idxs:
         posterior_shift[grid_idxs[tuple(idx)]] = obs_dict[tuple(idx)] * obs_noise_inv_sq
