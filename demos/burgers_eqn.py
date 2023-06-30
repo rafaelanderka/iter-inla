@@ -51,16 +51,6 @@ def burgers_odes(u, t, k, mu, nu):
 # Solve system of ODEs
 u = odeint(burgers_odes, u0, T, args=(k, mu, nu,), mxstep=5000)
 
-# # Plot solution
-plt.imshow(u.T, vmin=0, vmax=1, origin="lower", extent=(0, L_t, 0, L_x))
-plt.title('"Ground truth" u(x,t)')
-plt.ylabel("x")
-plt.xlabel("t")
-plt.colorbar()
-plt.tight_layout()
-plt.savefig('figures/burgers_eqn/burgers_eqn_gt.png')
-plt.show()
-
 # Sample observations
 obs_noise = 1e-4
 obs_count = 100
@@ -78,11 +68,12 @@ def get_diff_op(u, dx, dt, nu):
 
 # Perform iterative optimisation
 diff_op_gen = lambda u: get_diff_op(u, dx, dt, nu)
-post_mean, post_std, v_hist = nonlinear.fit_pde_gp(u, diff_op_gen, obs_dict, obs_noise)
+model = nonlinear.NonlinearSPDERegressor(u, dx, dt, diff_op_gen)
+model.fit(obs_dict, obs_noise, max_iter=20)
 
 # Plot results
-plotting.plot_gp_2d(u.T, post_mean.T, post_std.T, util.swap_cols(obs_idxs), 'figures/burgers_eqn/burgers_eqn_20_iter.png',
+plotting.plot_gp_2d(u.T, model.posterior_mean.T, model.posterior_std.T, util.swap_cols(obs_idxs), 'figures/burgers_eqn/burgers_eqn_20_iter.png',
                     mean_vmin=0, mean_vmax=1, std_vmin=0, std_vmax=20,
                     diff_vmin=-0.2, diff_vmax=0.2)
 print("Saving animation...")
-plotting.animate_images([img.T for img in v_hist], util.swap_cols(obs_idxs), "figures/burgers_eqn/burgers_eqn_iter_animation.gif")
+plotting.animate_images([img.T for img in model.v_hist], util.swap_cols(obs_idxs), "figures/burgers_eqn/burgers_eqn_iter_animation.gif")

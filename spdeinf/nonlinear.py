@@ -1,30 +1,86 @@
 import numpy as np
+import matplotlib.pyplot as plt
 
 from . import linear
 from . import metrics
+from . import util
 
-def fit_pde_gp(u, diff_op_generator, obs_dict, obs_noise):
-    # Guess mean is 0
-    v = np.zeros_like(u)
+class NonlinearSPDERegressor(object):
+    def __init__(self, u, dx, dt, diff_op_generator, mixing_coeff=1.) -> None:
+        self.u = u
+        self.dx = dx
+        self.dt = dt
+        self.diff_op_generator = diff_op_generator
+        self.mixing_coeff = mixing_coeff
+        self.persistance_coeff = 1. - mixing_coeff
 
-    # Iterative linearisation
-    max_iter = 20
-    v_hist = [v]
-    mixing_coeff = 1
-    persist_coeff = 1 - mixing_coeff
-    for i in range(max_iter - 1):
-        # diff_op_guess = FinDiff(0, dt, 1) + Coef(v) * FinDiff(1, dx, 1) + Coef(diff_op_x(v)) * Identity() - Coef(nu) * FinDiff(1, dx, 2)
-        diff_op_guess = diff_op_generator(v)
-        res = linear.fit_spde_gp(u, obs_dict, obs_noise, diff_op_guess)
-        v = persist_coeff * v + mixing_coeff * res['posterior_mean'].copy()
-        v_hist.append(v)
-        print(f'iter={i+1:d}, MSE={metrics.mse(u, v)}')
+        # Data
+        self.obs_dict = None
+        self.obs_noise = None
 
-    # Generate final posterior including std. dev.
-    diff_op_guess = diff_op_generator(v)
-    res = linear.fit_spde_gp(u, obs_dict, obs_noise, diff_op_guess, calc_std=True)
-    post_mean = res['posterior_mean']
-    post_std = res['posterior_std']
-    print(f'iter={max_iter:d}, MSE={metrics.mse(u, post_mean)}')
-    v_hist.append(post_mean)
-    return post_mean, post_std, v_hist
+        # Optimiser state
+        self.v = np.zeros_like(self.u)
+        self.v_hist = [self.v.copy()]
+        self.log_marginal_likelihood = None
+        self.preempt_requested = False
+
+        # Posterior parameters
+        self.posterior_mean = None
+        self.posterior_std = None
+
+    def fit(self, obs_dict, obs_noise, max_iter):
+        self.preempt_requested = False
+        self.obs_dict = obs_dict
+        self.obs_noise = obs_noise
+        obs_idx = util.swap_cols(np.array(list(obs_dict.keys()), dtype=int))
+
+        # Initialise figure
+        gs_kw = dict(width_ratios=[1, 1, 1], height_ratios=[1])
+        fig, axd = plt.subplot_mosaic([['gt', 'mean', 'std']], gridspec_kw=gs_kw, figsize=(17, 5))
+        im_gt = axd['gt'].imshow(self.u.T, animated=True, origin="lower")
+        im_mean = axd['mean'].imshow(np.zeros_like(self.u).T, animated=True, origin="lower")
+        im_std = axd['std'].imshow(np.zeros_like(self.u).T, animated=True, origin="lower")
+        axd['mean'].scatter(obs_idx[:,1], obs_idx[:,0], c='r', marker='x')
+        axd['std'].scatter(obs_idx[:,1], obs_idx[:,0], c='r', marker='x')
+        axd['gt'].set_title('Ground truth')
+        axd['mean'].set_title('Posterior mean')
+        axd['std'].set_title('Posterior std.')
+        fig.colorbar(im_mean, ax=axd['mean'])
+        fig.colorbar(im_std, ax=axd['std'])
+        fig.show()
+        fig.canvas.mpl_connect('close_event', self.preempt)
+
+        # Perform iterative linearisation
+        print('Fitting model...')
+        for i in range(max_iter):
+            # Handle preempt requests
+            if self.preempt_requested:
+                break
+
+            # Perform update
+            self.update(calc_std=True)
+            print(f'iter={i+1:d}, MSE={metrics.mse(self.u, self.v)}')
+
+            # Draw and output the current parameters
+            im_mean.set_data(self.posterior_mean.T)
+            im_std.set_data(self.posterior_std.T)
+            im_mean.autoscale()
+            im_std.autoscale()
+            fig.canvas.draw()
+            fig.canvas.flush_events()
+
+        plt.close()
+        return
+
+    def update(self, calc_std=False):
+        # Use current v to generate new approximate linear diff. operator
+        diff_op_guess = self.diff_op_generator(self.v)
+        res = linear.fit_spde_gp(self.u, self.obs_dict, self.obs_noise, diff_op_guess, calc_std=calc_std)
+        self.posterior_mean = res['posterior_mean']
+        self.v = self.persistance_coeff * self.v + self.mixing_coeff * self.posterior_mean
+        self.v_hist.append(self.v.copy())
+        if calc_std:
+            self.posterior_std = res['posterior_std']
+
+    def preempt(self, *args):
+        self.preempt_requested = True
