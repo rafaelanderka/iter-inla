@@ -1,11 +1,11 @@
 from time import time
 import numpy as np
-import scipy
 from sksparse.cholmod import cholesky
-from scipy.sparse import csr_matrix, lil_matrix, identity
-from findiff import FinDiff, PDE, BoundaryConditions
+from scipy.sparse import identity
+from findiff import FinDiff
 import matplotlib.pyplot as plt
-import linear
+
+from spdeinf import util
 
 np.set_printoptions(threshold=np.inf)
 np.set_printoptions(linewidth=np.inf)
@@ -20,7 +20,7 @@ for k in np.arange(10, 1010 + 1, 100):
     n = k * k
     ns.append(n)
     shape = (k, k)
-    mat = linear.operator_to_matrix(diff_op, shape, interior_only=False)
+    mat = util.operator_to_matrix(diff_op, shape, interior_only=False)
     if k == 10:
         M = mat.T @ mat
         print(M.todense())
@@ -52,5 +52,4 @@ plt.plot(ns, ts)
 plt.xlabel("N")
 plt.ylabel("t [s]")
 plt.title("Time to compute posterior vs. field size")
-plt.savefig("complexity_test.png")
-
+plt.savefig("figures/complexity_test.png")

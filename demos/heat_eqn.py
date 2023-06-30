@@ -4,10 +4,9 @@ import numpy as np
 import jax
 from findiff import FinDiff, PDE, BoundaryConditions
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from src import linear
+from spdeinf import linear, plotting, metrics, util
 
-# Generate data from heat equation
+## Generate data from heat equation
 
 # Set config params
 grid_size = 80
@@ -48,12 +47,12 @@ u = pde.solve()
 # Sample observations
 obs_noise = 1e-4
 obs_count = 100
-obs_dict = linear.sample_observations(u, obs_count, obs_noise)
+obs_dict = util.sample_observations(u, obs_count, obs_noise)
 obs_idxs = np.array(list(obs_dict.keys()), dtype=int)
 
 # Construct fin. diff. matrices
-diff_mat_t = linear.scipy2jax_csr(diff_op_t.matrix(shape))
-diff_mat_x = linear.scipy2jax_csr(diff_op_x.matrix(shape))
+diff_mat_t = util.scipy2jax_csr(diff_op_t.matrix(shape))
+diff_mat_x = util.scipy2jax_csr(diff_op_x.matrix(shape))
 
 def lml(a):
     prior_precision = diff_mat_t - a * diff_mat_x
@@ -68,13 +67,13 @@ alpha = 0.1
 for i in range(10):
     (log_ml, (mean, std)), alpha_grad = lml_with_grad(alpha)
     alpha -= lr * alpha_grad
-    print(f'a={alpha:.2f}, MSE={linear.mse(u, mean):.8f}, LML={log_ml:.2f}')
-# linear.plot_gp_2d(u.T, posterior_mean_pde.T, posterior_std_pde.T, linear.swap_cols(obs_idxs), 'figures/heat_eqn_test_pde.png',
+    print(f'a={alpha:.2f}, MSE={metrics.mse(u, mean):.8f}, LML={log_ml:.2f}')
+# plotting.plot_gp_2d(u.T, posterior_mean_pde.T, posterior_std_pde.T, util.swap_cols(obs_idxs), 'figures/heat_eqn_test_pde.png',
 #                   mean_vmin=-0.05, mean_vmax=1, std_vmin=0, std_vmax=0.06,
 #                   diff_vmin=-0.3, diff_vmax=0.2)
 
 # # Fit with RBF prior
 # posterior_mean_rbf, posterior_std_rbf = linear.fit_rbf_gp(u, obs_dict, X_test, dx, dt, obs_noise)
-# print(linear.mse(u, posterior_mean_rbf))
-# linear.plot_gp_2d(u.T, posterior_mean_rbf.T, posterior_std_rbf.T, linear.swap_cols(obs_idxs), 'figures/heat_eqn_test_rbf.png',
+# print(metrics.mse(u, posterior_mean_rbf))
+# plotting.plot_gp_2d(u.T, posterior_mean_rbf.T, posterior_std_rbf.T, util.swap_cols(obs_idxs), 'figures/heat_eqn_test_rbf.png',
 #                   mean_vmin=-0.05, mean_vmax=1, std_vmin=0, std_vmax=0.06, diff_vmin=-0.2, diff_vmax=0.055)
