@@ -1,13 +1,7 @@
-import os
-import sys
 import numpy as np
 from findiff import FinDiff, PDE, BoundaryConditions
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from src import linear
-from src import plotting
-from src import metrics
-from src import util
+from spdeinf import linear, plotting, metrics, util
 
 # Generate data from heat equation
 
@@ -54,7 +48,7 @@ obs_idxs = np.array(list(obs_dict.keys()), dtype=int)
 # Fit with PDE prior
 for a in np.linspace(0.01, 0.1, 10):
     diff_op_guess = FinDiff(0, dt, 1) - a * FinDiff(1, dx, 2)
-    res = linear.fit_spde_grf(u, obs_dict, obs_noise, diff_op_guess, calc_std=True, calc_lml=True)
+    res = linear.fit_spde_gp(u, obs_dict, obs_noise, diff_op_guess, calc_std=True, calc_lml=True)
     posterior_mean_pde = res['posterior_mean']
     posterior_std_pde = res['posterior_std']
     log_marginal_likelihood = res['log_marginal_likelihood']

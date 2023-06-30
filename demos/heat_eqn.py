@@ -1,10 +1,8 @@
-import os
-import sys
 import numpy as np
 import jax
 from findiff import FinDiff, PDE, BoundaryConditions
 
-from spdeinf import linear, plotting, metrics, util
+from spdeinf import linear, metrics, util
 
 ## Generate data from heat equation
 
