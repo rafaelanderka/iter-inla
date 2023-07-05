@@ -6,11 +6,11 @@ from sklearn.gaussian_process.kernels import RBF
 
 from . import util
 
-def fit_spde_gp(u, obs_dict, obs_noise, diff_op, calc_std=False, calc_lml=False,
+def fit_spde_gp(u, obs_dict, obs_noise, diff_op, c=1, calc_std=False, calc_lml=False,
                  include_initial_cond=False, include_terminal_cond=False, include_boundary_cond=True):
     # Construct precision matrix corresponding to the linear differential operator
     mat = util.operator_to_matrix(diff_op, u.shape, interior_only=False)
-    prior_precision = mat.T @ mat
+    prior_precision = c * (mat.T @ mat)
 
     return _fit_gp(u, obs_dict, obs_noise, prior_precision, calc_std=calc_std, calc_lml=calc_lml,
                     include_initial_cond=include_initial_cond, include_terminal_cond=include_terminal_cond,

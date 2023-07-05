@@ -1,15 +1,18 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy.sparse import identity
 from scipy.integrate import odeint
 from findiff import FinDiff, Coef
+from sksparse.cholmod import cholesky
 
 from spdeinf import nonlinear, plotting, util
+
 
 ## Generate data from Burger's equation
 
 # Define parameters of Burgers' equation
 mu = 1
-nu = 0.2 # Kinematic viscosity coefficient
+nu = 0.05 # Kinematic viscosity coefficient
 
 # Create spatial discretisation
 L_x = 10                      # Range of the domain according to x [m]
@@ -39,11 +42,11 @@ def burgers_odes(u, t, k, mu, nu):
     u_hat = np.fft.fft(u)
     u_hat_x = 1j * k * u_hat
     u_hat_xx = -k**2 * u_hat
-    
+
     # Switching in the spatial domain
     u_x = np.fft.ifft(u_hat_x)
     u_xx = np.fft.ifft(u_hat_xx)
-    
+
     # ODE resolution
     u_t = -mu * u * u_x + nu * u_xx
     return u_t.real
@@ -67,9 +70,30 @@ def get_diff_op(u, dx, dt, nu):
     return FinDiff(0, dt, 1) + Coef(u) * FinDiff(1, dx, 1) - Coef(nu) * FinDiff(1, dx, 2)
 
 # Perform iterative optimisation
+max_iter = 10
 diff_op_gen = lambda u: get_diff_op(u, dx, dt, nu)
 model = nonlinear.NonlinearSPDERegressor(u, dx, dt, diff_op_gen)
-model.fit(obs_dict, obs_noise, max_iter=20)
+model.fit(obs_dict, obs_noise, max_iter=max_iter, animated=False)
+
+# Check prior covariance
+diff_op_init = diff_op_gen(np.zeros_like(u))
+diff_op_final = diff_op_gen(model.posterior_mean)
+
+L_init = util.operator_to_matrix(diff_op_init, u.shape, interior_only=False)
+L_final = util.operator_to_matrix(diff_op_final, u.shape, interior_only=False)
+LL_init = L_init.T @ L_init
+LL_final = L_final.T @ L_final
+LL_init_chol = cholesky(LL_init + identity(LL_init.shape[0]))
+LL_final_chol = cholesky(LL_final + identity(LL_final.shape[0]))
+prior_init_std = np.sqrt(LL_init_chol.spinv().diagonal().reshape(u.shape))
+prior_final_std = np.sqrt(LL_final_chol.spinv().diagonal().reshape(u.shape))
+
+fig, ax = plt.subplots(1, 2)
+im_init = ax[0].imshow(prior_init_std.T, origin="lower")
+im_final = ax[1].imshow(prior_final_std.T, origin="lower")
+fig.colorbar(im_init)
+fig.colorbar(im_final)
+plt.show()
 
 # Plot results
 plotting.plot_gp_2d(u.T, model.posterior_mean.T, model.posterior_std.T, util.swap_cols(obs_idxs), 'figures/burgers_eqn/burgers_eqn_20_iter.png',
