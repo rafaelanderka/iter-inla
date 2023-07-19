@@ -63,8 +63,8 @@ def fit_rbf_gp(u, obs_dict, X_test, dx, dt, obs_noise):
     shape = u.shape
     # Extract the observations from the dictionary
     obs_idx = np.array(list(obs_dict.keys()), dtype=float)
-    obs_idx[:,0] *= dt
-    obs_idx[:,1] *= dx
+    obs_idx[:,0] *= dx
+    obs_idx[:,1] *= dt
     obs_vals = list(obs_dict.values())
 
     # Add boundary conditions to obs_idx and obs_vals
@@ -74,7 +74,7 @@ def fit_rbf_gp(u, obs_dict, X_test, dx, dt, obs_noise):
     for i in range(shape[0]):
         for j in range(shape[1]):
             if j == 0 or j == shape[1] - 1:
-                idx = np.array([i * dt, j * dx])
+                idx = np.array([i * dx, j * dt])
                 val = u[i, j]
                 boundary_indices.append(idx)
                 boundary_values.append(val)
@@ -83,14 +83,15 @@ def fit_rbf_gp(u, obs_dict, X_test, dx, dt, obs_noise):
     obs_vals = np.hstack((obs_vals, boundary_values))
 
     # Define the RBF kernel with hyperparameters l and sigma_f
-    l = 0.2  # Length scale
-    kernel = RBF(length_scale=l, length_scale_bounds='fixed')
+    # l = 2  # Length scale
+    # kernel = RBF(length_scale=l, length_scale_bounds='fixed')
+    kernel = RBF()
 
     # Create a Gaussian Process Regressor with the RBF kernel
     gp = GaussianProcessRegressor(kernel=kernel, alpha=obs_noise)
 
     # Train the GP model on the observations
-    gp.fit(util.swap_cols(obs_idx), obs_vals)
+    gp.fit(obs_idx, obs_vals)
 
     # Make predictions with the GP model over the input grid
     y_pred, std_dev = gp.predict(X_test, return_std=True)

@@ -78,12 +78,12 @@ def get_boundary_indices(shape, include_initial_cond=False, include_terminal_con
     boundary_indices = full_indices[mask].flatten()
     return boundary_indices
 
-def sample_observations(u, obs_count, obs_noise, xlim=float("-inf")):
+def sample_observations(u, obs_count, obs_noise, xlim=float("-inf"), seed=0):
     """
     Sample noisy observations from field u at random locations
     """
     time_size, grid_size = u.shape
-    rng = np.random.default_rng()
+    rng = np.random.default_rng(seed)
     t_idxs = np.arange(time_size)
     x_idxs = np.arange(grid_size)
     T_idxs, X_idxs = np.meshgrid(t_idxs, x_idxs, indexing='ij')
