@@ -28,7 +28,12 @@ class NonlinearSPDERegressor(object):
         self.u0 = np.zeros_like(self.u)
         # self.u0 = self.u.copy()
         self.u0_hist = [self.u0.copy()]
+        self.mse = float("inf")
+        self.mse_hist = []
+        self.rmse = float("inf")
+        self.rmse_hist = []
         self.lml = float("-inf")
+        self.lml_hist = []
         self.preempt_requested = False
         self.sigma = 1000 
 
@@ -75,6 +80,13 @@ class NonlinearSPDERegressor(object):
         self.u0 = self.persistance_coeff * self.u0 + self.mixing_coeff * self.posterior_mean
         self.u0_hist.append(self.u0.copy())
 
+        # Calculate MSE
+        self.mse = metrics.mse(self.u, self.u0)
+        self.mse_hist.append(self.mse)
+        self.rmse = np.sqrt(self.mse)
+        self.rmse_hist.append(self.rmse)
+
+        # Optionally calculate std. dev. and log evidence
         if calc_std:
             self.posterior_std = res['posterior_std']
             self.posterior_std_hist.append(self.posterior_std.copy())
@@ -103,13 +115,17 @@ class NonlinearSPDERegressor(object):
             calc_std = calc_std or is_final_iteration
             calc_lml = calc_lml or is_final_iteration
             self.update(calc_std=calc_std, calc_lml=calc_lml)
-            print(f'iter={i+1:d}, MSE={metrics.mse(self.u, self.u0)}')
+            print(f'iter={i+1:d}, RMSE={self.rmse}')
 
             # Draw and output the current parameters
             if animated:
                 self.update_animation(i, im_mean, im_std, im_prior, im_data)
                 fig.canvas.draw()
                 fig.canvas.flush_events()
+
+        if animated:
+            plt.close()
+
         return
 
     def init_animation(self):

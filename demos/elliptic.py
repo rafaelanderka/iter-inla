@@ -100,7 +100,7 @@ def get_prior_mean_naive(u0, diff_op_gen):
 diff_op_gen_naive = lambda u: get_diff_op_naive(u, dx, dy, alpha)
 prior_mean_gen_naive = lambda u: get_prior_mean_naive(u, diff_op_gen)
 
-## Fit GP with non-linear PDE prior from elliptic equation
+## Fit GP with non-linear SPDE prior from elliptic equation
 
 # Sample observations
 obs_noise = 1e-4
@@ -116,6 +116,17 @@ model.fit(obs_dict, obs_noise, max_iter=max_iter, animated=True)
 # Fit with naive linearisation
 model_naive = nonlinear.NonlinearSPDERegressor(u, dx, dy, diff_op_gen_naive, prior_mean_gen_naive)
 model_naive.fit(obs_dict, obs_noise, max_iter=max_iter, animated=True)
+
+# Plot convergence history
+plt.plot(np.arange(1, max_iter + 1), model.mse_hist, label="Linearisation via expansion")
+plt.plot(np.arange(1, max_iter + 1), model_naive.mse_hist, label="Naive linearisation")
+plt.yscale('log')
+plt.xlabel("Iteration")
+plt.ylabel("MSE")
+plt.xticks(np.arange(1, max_iter + 1))
+plt.legend()
+plt.savefig("figures/elliptic/mse_conv.png", dpi=200)
+plt.show()
 
 # Save animation
 print("Saving animation...")
