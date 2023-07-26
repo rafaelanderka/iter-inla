@@ -64,12 +64,12 @@ def get_boundary_indices(shape, include_initial_cond=False, include_terminal_con
     col_start = 0
     col_end = None
     if include_initial_cond:
-        row_start = 1
-    if include_terminal_cond:
-        row_end = -1
-    if include_boundary_cond:
         col_start = 1
+    if include_terminal_cond:
         col_end = -1
+    if include_boundary_cond:
+        row_start = 1
+        row_end = -1
 
     # Genarate boundary indices from mask
     full_indices = get_domain_indices(shape)
@@ -89,7 +89,7 @@ def sample_observations(u, obs_count, obs_noise, xlim=float("-inf"), seed=0):
     T_idxs, X_idxs = np.meshgrid(t_idxs, x_idxs, indexing='ij')
     all_idxs = np.stack([T_idxs.flatten(), X_idxs.flatten()], axis=1)
     idxs = rng.choice(all_idxs, obs_count, replace=False)
-    obs_dict = {tuple(idx): u[tuple(idx)]+obs_noise*np.random.randn() for idx in idxs if idx[0] >= xlim}
+    obs_dict = {tuple(idx): u[tuple(idx)]+obs_noise*np.random.randn() for idx in idxs if idx[1] <= xlim}
     return obs_dict
 
 def swap_cols(arr, i=0, j=1):
