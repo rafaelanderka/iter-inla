@@ -1,8 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.sparse import identity
-from scipy.linalg import det
-from scipy.sparse.linalg import spsolve, eigs
+from scipy.sparse.linalg import spsolve
 from scipy.integrate import odeint
 from findiff import FinDiff, Coef, Identity
 from sksparse.cholmod import cholesky
@@ -13,7 +12,7 @@ from spdeinf import nonlinear, linear, plotting, util, metrics
 
 # Define parameters of Burgers' equation
 mu = 1 
-nu = 0.05 # Kinematic viscosity coefficient
+nu = 0.03 # Kinematic viscosity coefficient
 
 # Create spatial discretisation
 L_x = 10                      # Range of the domain according to x [m]
@@ -108,18 +107,19 @@ def get_prior_mean_naive(u0, diff_op_gen):
 diff_op_gen_naive = lambda u: get_diff_op_naive(u, dx, dt, nu)
 prior_mean_gen_naive = lambda u: get_prior_mean_naive(u, diff_op_gen)
 
-## Fit GP with non-linear PDE prior from Burgers' equation
+## Fit GP with non-linear SPDE prior from Burgers' equation
 
 # Sample observations
 obs_noise = 1e-4
-obs_count = 10
-obs_dict = util.sample_observations(u, obs_count, obs_noise, xlim=6)
+obs_count = 100
+obs_dict = util.sample_observations(u, obs_count, obs_noise, xlim=20)
 obs_idxs = np.array(list(obs_dict.keys()), dtype=int)
+print("Number of observations:", obs_idxs.shape[0])
 
 # Perform iterative optimisation
-max_iter = 20
+max_iter = 50
 model = nonlinear.NonlinearSPDERegressor(u, dx, dt, diff_op_gen, prior_mean_gen)
-model.fit(obs_dict, obs_noise, max_iter=max_iter, animated=True)
+model.fit(obs_dict, obs_noise, max_iter=max_iter, animated=True, calc_std=True)
 
 # Check prior covariance
 diff_op_init = diff_op_gen(np.zeros_like(u))
@@ -143,22 +143,37 @@ fig.colorbar(im_init)
 fig.colorbar(im_final)
 plt.show()
 
+# Fit with naive linearisation
+model_naive = nonlinear.NonlinearSPDERegressor(u, dx, dt, diff_op_gen_naive, prior_mean_gen_naive)
+model_naive.fit(obs_dict, obs_noise, max_iter=max_iter, animated=True, calc_std=True)
+
+# Plot convergence history
+plt.plot(np.arange(1, max_iter + 1), model.mse_hist, label="Linearisation via expansion")
+plt.plot(np.arange(1, max_iter + 1), model_naive.mse_hist, label="Naive linearisation")
+plt.yscale('log')
+plt.xlabel("Iteration")
+plt.ylabel("MSE")
+plt.xticks(np.arange(1, max_iter + 1))
+plt.legend()
+plt.savefig("figures/burgers_eqn/mse_conv.png", dpi=200)
+plt.show()
+
 # Fit with RBF
 # posterior_mean_rbf, posterior_std_rbf = linear.fit_rbf_gp(u, obs_dict, X_test, dx, dt, obs_noise)
 # print(metrics.mse(u, posterior_mean_rbf))
 
 # Plot results
-plot_kwargs = {
-        'mean_vmin': u.min(),
-        'mean_vmax': u.max(),
-        'std_vmin': 0,
-        'std_vmax': model.posterior_std.max(),
-        'diff_vmin': -0.2,
-        'diff_vmax': 1,
-        }
+# plot_kwargs = {
+#         'mean_vmin': u.min(),
+#         'mean_vmax': u.max(),
+#         'std_vmin': 0,
+#         'std_vmax': model.posterior_std.max(),
+#         'diff_vmin': -0.2,
+#         'diff_vmax': 1,
+#         }
 # plotting.plot_gp_2d(u, model.posterior_mean, model.posterior_std, obs_idxs, 'figures/burgers_eqn/burgers_eqn_20_iter.png', **plot_kwargs)
 # plotting.plot_gp_2d(u, posterior_mean_rbf, posterior_std_rbf, obs_idxs, 'figures/burgers_eqn/burgers_eqn_rbf.png', **plot_kwargs)
 
 # Save animation
 print("Saving animation...")
-model.save_animation("figures/burgers_eqn/burgers_eqn_iter_animation.gif", fps=1)
+model.save_animation("figures/burgers_eqn/burgers_eqn_iter_animation.gif", fps=2)
