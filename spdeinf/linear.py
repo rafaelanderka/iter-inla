@@ -7,7 +7,7 @@ from sklearn.gaussian_process.kernels import RBF
 from . import util
 
 def fit_spde_gp(u, obs_dict, obs_noise, diff_op, c=1, calc_std=False, calc_lml=False,
-                 include_initial_cond=False, include_terminal_cond=False, include_boundary_cond=True):
+                 include_initial_cond=False, include_terminal_cond=False, include_boundary_cond=False):
     # Construct precision matrix corresponding to the linear differential operator
     mat = util.operator_to_matrix(diff_op, u.shape, interior_only=False)
     prior_precision = c * (mat.T @ mat)
@@ -17,7 +17,7 @@ def fit_spde_gp(u, obs_dict, obs_noise, diff_op, c=1, calc_std=False, calc_lml=F
                     include_boundary_cond=include_boundary_cond)
 
 def _fit_gp(ground_truth, obs_dict, obs_noise, prior_precision, calc_std=False, calc_lml=False,
-             include_initial_cond=False, include_terminal_cond=False, include_boundary_cond=True):
+             include_initial_cond=False, include_terminal_cond=False, include_boundary_cond=False):
     # Process args
     shape = ground_truth.shape
     obs_idxs = np.array(list(obs_dict.keys()), dtype=int)
@@ -40,7 +40,7 @@ def _fit_gp(ground_truth, obs_dict, obs_noise, prior_precision, calc_std=False, 
     for idx in obs_idxs:
         posterior_shift[grid_idxs[tuple(idx)]] = obs_dict[tuple(idx)] * obs_noise_inv_sq
     for idx in boundary_idxs:
-        posterior_shift[idx] = ground_truth.flatten()[idx]/obs_noise**2
+        posterior_shift[idx] = ground_truth.flatten()[idx] * obs_noise_inv_sq
     
     # Compute posterior mean and covariance
     res = dict()
