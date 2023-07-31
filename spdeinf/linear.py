@@ -7,50 +7,62 @@ from sklearn.gaussian_process.kernels import RBF
 from . import util
 
 def fit_spde_gp(u, obs_dict, obs_noise, diff_op, c=1, calc_std=False, calc_lml=False,
-                 include_initial_cond=False, include_terminal_cond=False, include_boundary_cond=False):
+                include_initial_cond=False, include_terminal_cond=False, include_boundary_cond=False,
+                regularisation=0):
     # Construct precision matrix corresponding to the linear differential operator
     mat = util.operator_to_matrix(diff_op, u.shape, interior_only=False)
     prior_precision = c * (mat.T @ mat)
 
     return _fit_gp(u, obs_dict, obs_noise, prior_precision, calc_std=calc_std, calc_lml=calc_lml,
                     include_initial_cond=include_initial_cond, include_terminal_cond=include_terminal_cond,
-                    include_boundary_cond=include_boundary_cond)
+                    include_boundary_cond=include_boundary_cond, regularisation=regularisation)
 
 def _fit_gp(ground_truth, obs_dict, obs_noise, prior_precision, calc_std=False, calc_lml=False,
-             include_initial_cond=False, include_terminal_cond=False, include_boundary_cond=False):
+            include_initial_cond=False, include_terminal_cond=False, include_boundary_cond=False,
+            regularisation=0):
     # Process args
     shape = ground_truth.shape
+    N = np.prod(shape)
     obs_idxs = np.array(list(obs_dict.keys()), dtype=int)
     obs_noise_inv_sq = obs_noise**(-2)
 
-    # Construct posterior precision and posterior shift
-    N = np.prod(shape)
-    grid_idxs = util.get_domain_indices(shape)
+    # Get boundary indices
     boundary_idxs = util.get_boundary_indices(shape, include_initial_cond=include_initial_cond, 
                                               include_terminal_cond=include_terminal_cond,
                                               include_boundary_cond=include_boundary_cond)
+
+    # Construct observation mask
+    grid_idxs = util.get_domain_indices(shape)
     mask = np.zeros(N)
     for idx in obs_idxs:
         mask[grid_idxs[tuple(idx)]] = obs_noise_inv_sq
     obs_mask = mask.copy().astype(bool)
     for idx in boundary_idxs:
         mask[idx] = obs_noise_inv_sq
+
+    # Construct posterior precision
     posterior_precision = prior_precision + sparse.diags(mask, format="csr")
+    if regularisation != 0:
+        posterior_precision += regularisation * sparse.identity(N)
+
+    # Construct posterior shift
     posterior_shift = np.zeros(np.prod(shape))
     for idx in obs_idxs:
         posterior_shift[grid_idxs[tuple(idx)]] = obs_dict[tuple(idx)] * obs_noise_inv_sq
     for idx in boundary_idxs:
         posterior_shift[idx] = ground_truth.flatten()[idx] * obs_noise_inv_sq
     
-    # Compute posterior mean and covariance
+    # Compute posterior mean
     res = dict()
     posterior_precision_cholesky = cholesky(posterior_precision)
     res['posterior_mean'] = posterior_precision_cholesky(posterior_shift).reshape(shape)
+
+    # Optionally compute posterior variance/std.
     if calc_std:
         posterior_var = posterior_precision_cholesky.spinv().diagonal().reshape(shape)
         res['posterior_std'] = np.sqrt(posterior_var)
 
-    # Compute log marginal likelihood
+    # Optionally compute log evidence
     if calc_lml:
         P = posterior_precision[obs_mask, :][:, obs_mask]
         L = cholesky(P)

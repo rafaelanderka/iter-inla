@@ -104,7 +104,7 @@ prior_mean_gen_naive = lambda u: get_prior_mean_naive(u, diff_op_gen)
 
 # Sample observations
 obs_noise = 1e-4
-obs_count = 10
+obs_count = 20
 obs_dict = util.sample_observations(u, obs_count, obs_noise, xlim=float("inf"))
 obs_idxs = np.array(list(obs_dict.keys()), dtype=int)
 

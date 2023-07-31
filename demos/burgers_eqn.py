@@ -35,7 +35,7 @@ k = 2 * np.pi * np.fft.fftfreq(N_x, d=dx)
 
 # Define the initial condition    
 # u0 = np.exp(-(X - 3)**2 / 2)
-u0 = np.exp(-(X - 4)**2 / 10)
+u0 = np.exp(-(X - 5)**2 / 10)
 
 def burgers_odes(u, t, k, mu, nu):
     """
@@ -75,21 +75,6 @@ def get_diff_op(u0, dx, dt, nu):
     diff_op = partial_t + Coef(u0) * partial_x - Coef(nu) * partial_xx + Coef(u0_x) * Identity()
     return diff_op
 
-def get_diff_op_naive(u0, dx, dt, nu):
-    partial_t = FinDiff(1, dt, 1)
-    partial_x = FinDiff(0, dx, 1)
-    partial_xx = FinDiff(0, dx, 2)
-    diff_op = partial_t + Coef(u0) * partial_x - Coef(nu) * partial_xx
-    return diff_op
-
-diff_op_gen = lambda u: get_diff_op(u, dx, dt, nu)
-prior_mean_gen = lambda u: get_prior_mean(u, diff_op_gen)
-
-
-######################################
-# Naive diff. op. and mean generator #
-######################################
-
 def get_prior_mean(u0, diff_op_gen):
     """
     Calculates current prior mean.
@@ -101,6 +86,21 @@ def get_prior_mean(u0, diff_op_gen):
     prior_mean = spsolve(diff_op_mat, (u0 * u0_x).flatten())
     return prior_mean.reshape(u0.shape)
 
+diff_op_gen = lambda u: get_diff_op(u, dx, dt, nu)
+prior_mean_gen = lambda u: get_prior_mean(u, diff_op_gen)
+
+
+######################################
+# Naive diff. op. and mean generator #
+######################################
+
+def get_diff_op_naive(u0, dx, dt, nu):
+    partial_t = FinDiff(1, dt, 1)
+    partial_x = FinDiff(0, dx, 1)
+    partial_xx = FinDiff(0, dx, 2)
+    diff_op = partial_t + Coef(u0) * partial_x - Coef(nu) * partial_xx
+    return diff_op
+
 def get_prior_mean_naive(u0, diff_op_gen):
     return np.zeros_like(u0)
 
@@ -111,14 +111,14 @@ prior_mean_gen_naive = lambda u: get_prior_mean_naive(u, diff_op_gen)
 
 # Sample observations
 obs_noise = 1e-4
-obs_count = 100
+obs_count = 200
 obs_dict = util.sample_observations(u, obs_count, obs_noise, xlim=20)
 obs_idxs = np.array(list(obs_dict.keys()), dtype=int)
 print("Number of observations:", obs_idxs.shape[0])
 
 # Perform iterative optimisation
 max_iter = 50
-model = nonlinear.NonlinearSPDERegressor(u, dx, dt, diff_op_gen, prior_mean_gen)
+model = nonlinear.NonlinearSPDERegressor(u, dx, dt, diff_op_gen, prior_mean_gen, mixing_coef=0.5)
 model.fit(obs_dict, obs_noise, max_iter=max_iter, animated=True, calc_std=True)
 
 # Check prior covariance
@@ -176,4 +176,4 @@ plt.show()
 
 # Save animation
 print("Saving animation...")
-model.save_animation("figures/burgers_eqn/burgers_eqn_iter_animation.gif", fps=2)
+model.save_animation("figures/burgers_eqn/burgers_eqn_iter_animation.gif", fps=10)

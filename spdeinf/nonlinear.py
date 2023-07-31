@@ -9,15 +9,15 @@ from . import metrics
 from . import util
 
 class NonlinearSPDERegressor(object):
-    def __init__(self, u, dx, dt, diff_op_generator, prior_mean_generator, mixing_coeff=1.) -> None:
+    def __init__(self, u, dx, dt, diff_op_generator, prior_mean_generator, mixing_coef=1.) -> None:
         self.u = u
         self.dx = dx
         self.dt = dt
         self.dV = self.dx * self.dt
         self.diff_op_generator = diff_op_generator
         self.prior_mean_generator = prior_mean_generator
-        self.mixing_coeff = mixing_coeff
-        self.persistance_coeff = 1. - self.mixing_coeff
+        self.mixing_coef = mixing_coef
+        self.persistance_coef = 1. - self.mixing_coef
         self.shape = self.u.shape
 
         # Data to fit
@@ -58,9 +58,10 @@ class NonlinearSPDERegressor(object):
         # Construct precision matrix corresponding to the linear differential operator
         L = util.operator_to_matrix(diff_op_guess, self.shape, interior_only=False)
         LL = L.T @ L
-        LL_chol = cholesky(LL + tol * identity(LL.shape[0]))
-        kappa = LL_chol.spinv().diagonal().mean()
-        prior_precision = (self.sigma ** 2) / (self.dV * kappa) * LL
+        # LL_chol = cholesky(LL + tol * identity(LL.shape[0]))
+        # kappa = LL_chol.spinv().diagonal().mean()
+        # prior_precision = (self.sigma ** 2) / (self.dV * kappa) * LL
+        prior_precision = (self.sigma ** 2) / (self.dV) * LL
 
         # Subtract prior mean from observations
         obs_dict = self.obs_dict.copy()
@@ -77,7 +78,7 @@ class NonlinearSPDERegressor(object):
         self.posterior_mean = self.prior_mean + self.data_term
         self.posterior_mean_hist.append(self.posterior_mean.copy())
 
-        self.u0 = self.persistance_coeff * self.u0 + self.mixing_coeff * self.posterior_mean
+        self.u0 = self.persistance_coef * self.u0 + self.mixing_coef * self.posterior_mean
         self.u0_hist.append(self.u0.copy())
 
         # Calculate MSE
