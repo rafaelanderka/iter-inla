@@ -61,7 +61,8 @@ class NonlinearSPDERegressor(object):
         # LL_chol = cholesky(LL + tol * identity(LL.shape[0]))
         # kappa = LL_chol.spinv().diagonal().mean()
         # prior_precision = (self.sigma ** 2) / (self.dV * kappa) * LL
-        prior_precision = (self.sigma ** 2) / (self.dV) * LL
+        # prior_precision = (self.sigma ** 2) / (self.dV) * LL
+        prior_precision = LL
 
         # Subtract prior mean from observations
         obs_dict = self.obs_dict.copy()
