@@ -47,6 +47,12 @@ plt.imshow(u, origin="lower")
 plt.colorbar()
 plt.show()
 
+# Sample observations
+obs_noise = 1e-4
+obs_count = 20
+obs_dict = util.sample_observations(u, obs_count, obs_noise)
+obs_idxs = np.array(list(obs_dict.keys()), dtype=int)
+
 # Perform grid search of best alpha based on MSE
 N_alphas = 40
 true_alpha = alpha
@@ -110,13 +116,6 @@ for i, alpha in enumerate(alphas):
     prior_mean_gen_naive = lambda u: get_prior_mean_naive(u, diff_op_gen)
 
     ## Fit GP with non-linear SPDE prior from elliptic equation
-
-    # Sample observations
-    obs_noise = 1e-4
-    obs_count = 10
-    obs_dict = util.sample_observations(u, obs_count, obs_noise, xlim=float("inf"))
-    obs_idxs = np.array(list(obs_dict.keys()), dtype=int)
-
     # Perform iterative optimisation
     max_iter = 20
     model = nonlinear.NonlinearSPDERegressor(u, dx, dy, diff_op_gen, prior_mean_gen)

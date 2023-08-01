@@ -53,7 +53,7 @@ def get_exterior_indices(shape):
     mask[len(shape) * (slice(1, -1),)] = False
     exterior_indices = full_indices[mask].flatten()
     return exterior_indices
-    
+
 def get_boundary_indices(shape, include_initial_cond=False, include_terminal_cond=False, include_boundary_cond=True):
     """
     Get indices for domain boundary
@@ -78,18 +78,18 @@ def get_boundary_indices(shape, include_initial_cond=False, include_terminal_con
     boundary_indices = full_indices[mask].flatten()
     return boundary_indices
 
-def sample_observations(u, obs_count, obs_noise, xlim=float("-inf"), seed=0):
+def sample_observations(u, obs_count, obs_noise, extent=(None, None, None, None), seed=0):
     """
     Sample noisy observations from field u at random locations
     """
-    time_size, grid_size = u.shape
+    grid_size, time_size = u.shape
     rng = np.random.default_rng(seed)
-    t_idxs = np.arange(time_size)
-    x_idxs = np.arange(grid_size)
-    T_idxs, X_idxs = np.meshgrid(t_idxs, x_idxs, indexing='ij')
-    all_idxs = np.stack([T_idxs.flatten(), X_idxs.flatten()], axis=1)
+    x_idxs = np.arange(grid_size)[extent[0]:extent[1]]
+    t_idxs = np.arange(time_size)[extent[2]:extent[3]]
+    X_idxs, T_idxs = np.meshgrid(x_idxs, t_idxs, indexing='ij')
+    all_idxs = np.stack([X_idxs.flatten(), T_idxs.flatten()], axis=1)
     idxs = rng.choice(all_idxs, obs_count, replace=False)
-    obs_dict = {tuple(idx): u[tuple(idx)]+obs_noise*np.random.randn() for idx in idxs if idx[1] <= xlim}
+    obs_dict = {tuple(idx): u[tuple(idx)]+obs_noise*np.random.randn() for idx in idxs}
     return obs_dict
 
 def swap_cols(arr, i=0, j=1):

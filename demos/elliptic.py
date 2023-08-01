@@ -105,25 +105,27 @@ prior_mean_gen_naive = lambda u: get_prior_mean_naive(u, diff_op_gen)
 # Sample observations
 obs_noise = 1e-4
 obs_count = 20
-obs_dict = util.sample_observations(u, obs_count, obs_noise, xlim=float("inf"))
+obs_dict = util.sample_observations(u, obs_count, obs_noise)
 obs_idxs = np.array(list(obs_dict.keys()), dtype=int)
 
 # Fit with expansion linearisation
 max_iter = 20
 model = nonlinear.NonlinearSPDERegressor(u, dx, dy, diff_op_gen, prior_mean_gen)
 model.fit(obs_dict, obs_noise, max_iter=max_iter, animated=True)
+iter_count = len(model.mse_hist)
 
 # Fit with naive linearisation
 model_naive = nonlinear.NonlinearSPDERegressor(u, dx, dy, diff_op_gen_naive, prior_mean_gen_naive)
 model_naive.fit(obs_dict, obs_noise, max_iter=max_iter, animated=True)
+iter_count_naive = len(model_naive.mse_hist)
 
 # Plot convergence history
-plt.plot(np.arange(1, max_iter + 1), model.mse_hist, label="Linearisation via expansion")
-plt.plot(np.arange(1, max_iter + 1), model_naive.mse_hist, label="Naive linearisation")
+plt.plot(np.arange(1, iter_count + 1), model.mse_hist, label="Linearisation via expansion")
+plt.plot(np.arange(1, iter_count_naive + 1), model_naive.mse_hist, label="Naive linearisation")
 plt.yscale('log')
 plt.xlabel("Iteration")
 plt.ylabel("MSE")
-plt.xticks(np.arange(1, max_iter + 1))
+plt.xticks(np.arange(2, max(iter_count, iter_count_naive) + 1, 2))
 plt.legend()
 plt.savefig("figures/elliptic/mse_conv.png", dpi=200)
 plt.show()

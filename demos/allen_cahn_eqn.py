@@ -1,10 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.io import loadmat
-from scipy.sparse import identity
 from scipy.sparse.linalg import spsolve
 from findiff import FinDiff, Coef, Identity
-from sksparse.cholmod import cholesky
 
 from spdeinf import nonlinear, util
 
@@ -76,24 +74,25 @@ prior_mean_gen_naive = lambda u: get_prior_mean_naive(u, diff_op_gen, beta)
 ## Fit GP with non-linear SPDE prior from Allen-Cahn equation
 
 # Sample observations
-obs_noise = 1e-4
-obs_count = 900
-obs_dict = util.sample_observations(uu, obs_count, obs_noise, xlim=56)
+obs_noise = 1e-2
+obs_count = 256
+obs_dict = util.sample_observations(uu, obs_count, obs_noise, extent=(None, None, 0, 56))
 obs_idxs = np.array(list(obs_dict.keys()), dtype=int)
 print("Number of observations:", obs_idxs.shape[0])
 
 # Perform iterative optimisation
-max_iter = 30
+max_iter = 50
 model = nonlinear.NonlinearSPDERegressor(uu, dx, dt, diff_op_gen, prior_mean_gen, mixing_coef=0.5)
 model.fit(obs_dict, obs_noise, max_iter=max_iter, animated=True, calc_std=True)
+iter_count = len(model.mse_hist)
 
 # Plot convergence history
-plt.plot(np.arange(1, max_iter + 1), model.mse_hist, label="Linearisation via expansion")
-# plt.plot(np.arange(1, max_iter + 1), model_naive.mse_hist, label="Naive linearisation")
+plt.plot(np.arange(1, iter_count + 1), model.mse_hist, label="Linearisation via expansion")
+# plt.plot(np.arange(1, iter_count + 1), model_naive.mse_hist, label="Naive linearisation")
 plt.yscale('log')
 plt.xlabel("Iteration")
 plt.ylabel("MSE")
-plt.xticks(np.arange(1, max_iter + 1))
+plt.xticks(np.arange(2, iter_count + 1, 2))
 plt.legend()
 plt.savefig("figures/allen_cahn_eqn/mse_conv.png", dpi=200)
 plt.show()

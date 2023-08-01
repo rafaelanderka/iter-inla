@@ -67,7 +67,7 @@ prior_mean_gen = lambda u: get_prior_mean(u, diff_op_gen, c)
 obs_noise = 1e-1
 obs_count = 50
 obs_lim = 50
-obs_dict = util.sample_observations(u, obs_count, obs_noise, xlim=obs_lim)
+obs_dict = util.sample_observations(u, obs_count, obs_noise, extent=(None, None, 0, obs_lim))
 obs_idxs = np.array(list(obs_dict.keys()), dtype=int)
 obs_vals = np.array(list(obs_dict.values()))
 print("Number of observations:", obs_idxs.shape[0])
@@ -76,6 +76,7 @@ print("Number of observations:", obs_idxs.shape[0])
 max_iter = 40
 model = nonlinear.NonlinearSPDERegressor(u, 1, dt, diff_op_gen, prior_mean_gen, mixing_coef=0.5)
 model.fit(obs_dict, obs_noise, max_iter=max_iter, animated=False, calc_std=True)
+iter_count = len(model.mse_hist)
 
 # Plot fit
 plt.plot(T, u.squeeze(), "b", label="Ground truth")
@@ -91,11 +92,11 @@ plt.savefig("figures/pendulum/pendulum_fit.png", dpi=200)
 plt.show()
 
 # Plot convergence history
-plt.plot(np.arange(1, max_iter + 1), model.mse_hist, label="Linearisation via expansion")
+plt.plot(np.arange(1, iter_count + 1), model.mse_hist, label="Linearisation via expansion")
 plt.yscale("log")
 plt.xlabel("Iteration")
 plt.ylabel("MSE")
-plt.xticks(np.arange(1, max_iter + 1))
+plt.xticks(np.arange(2, iter_count + 1, 2))
 plt.legend()
 plt.savefig("figures/pendulum/mse_conv.png", dpi=200)
 plt.show()

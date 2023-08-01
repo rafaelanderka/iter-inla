@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import animation
 from scipy.sparse import identity
-from sksparse.cholmod import cholesky
+from sksparse.cholmod import cholesky, CholmodNotPositiveDefiniteError
 
 from . import linear
 from . import metrics
@@ -71,7 +71,13 @@ class NonlinearSPDERegressor(object):
 
         ## Fit corresponding GP
         # Get "data term" of posterior
-        res = linear._fit_gp(self.u - self.prior_mean, obs_dict, self.obs_noise, prior_precision, calc_std=calc_std, calc_lml=calc_lml)
+        try:
+            res = linear._fit_gp(self.u - self.prior_mean, obs_dict, self.obs_noise, prior_precision, calc_std=calc_std, calc_lml=calc_lml)
+        except CholmodNotPositiveDefiniteError:
+            print("Posterior precision positive definite")
+            self.preempt_requested = True
+            return
+
         self.data_term = res['posterior_mean']
         self.data_term_hist.append(self.data_term.copy())
 
@@ -120,7 +126,7 @@ class NonlinearSPDERegressor(object):
             print(f'iter={i+1:d}, RMSE={self.rmse}')
 
             # Draw and output the current parameters
-            if animated:
+            if animated and not self.preempt_requested:
                 self.update_animation(i, im_mean, im_std, im_prior, im_data)
                 fig.canvas.draw()
                 fig.canvas.flush_events()
@@ -178,7 +184,7 @@ class NonlinearSPDERegressor(object):
     def save_animation(self, output_filename, fps=5):
         fig, im_mean, im_std, im_prior, im_data = self.init_animation()
         animate = lambda i: self.update_animation(i, im_mean, im_std, im_prior, im_data)
-        t_steps = len(self.posterior_mean_hist)  # Number of frames
+        t_steps = len(self.mse_hist)  # Number of frames
 
         # Create an animation
         anim = animation.FuncAnimation(fig, animate, frames=t_steps, interval=10, blit=True)
