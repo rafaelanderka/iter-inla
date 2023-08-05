@@ -79,20 +79,20 @@ def fit_rbf_gp(u, obs_dict, X_test, dx, dt, obs_noise):
     obs_idx[:,1] *= dt
     obs_vals = list(obs_dict.values())
 
-    # Add boundary conditions to obs_idx and obs_vals
-    boundary_indices = []
-    boundary_values = []
+    # # Add boundary conditions to obs_idx and obs_vals
+    # boundary_indices = []
+    # boundary_values = []
 
-    for i in range(shape[0]):
-        for j in range(shape[1]):
-            if j == 0 or j == shape[1] - 1:
-                idx = np.array([i * dx, j * dt])
-                val = u[i, j]
-                boundary_indices.append(idx)
-                boundary_values.append(val)
+    # for i in range(shape[0]):
+    #     for j in range(shape[1]):
+    #         if j == 0 or j == shape[1] - 1:
+    #             idx = np.array([i * dx, j * dt])
+    #             val = u[i, j]
+    #             boundary_indices.append(idx)
+    #             boundary_values.append(val)
 
-    obs_idx = np.vstack((obs_idx, boundary_indices))
-    obs_vals = np.hstack((obs_vals, boundary_values))
+    # obs_idx = np.vstack((obs_idx, boundary_indices))
+    # obs_vals = np.hstack((obs_vals, boundary_values))
 
     # Define the RBF kernel with hyperparameters l and sigma_f
     # l = 2  # Length scale
