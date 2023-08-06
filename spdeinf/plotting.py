@@ -23,6 +23,7 @@ def plot_gp_2d(gt, gp_mean, gp_std, obs_idx, output_filename, mean_vmin, mean_vm
     axs[2].set_ylabel('x')
     fig.colorbar(ptstdim)
     diffim = axs[3].imshow(gt - gp_mean, vmin=diff_vmin, vmax=diff_vmax, origin="lower")
+    axs[3].scatter(obs_idx[:,1], obs_idx[:,0], c='r', marker='x')
     axs[3].set_title('diff')
     axs[3].set_xlabel('time')
     axs[3].set_ylabel('x')
