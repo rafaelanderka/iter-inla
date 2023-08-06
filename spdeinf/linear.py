@@ -8,18 +8,19 @@ from . import util
 
 def fit_spde_gp(u, obs_dict, obs_noise, diff_op, c=1, calc_std=False, calc_lml=False,
                 include_initial_cond=False, include_terminal_cond=False, include_boundary_cond=False,
-                regularisation=0):
+                regularisation=0, return_prior_precision=False, return_posterior_precision=False):
     # Construct precision matrix corresponding to the linear differential operator
     mat = util.operator_to_matrix(diff_op, u.shape, interior_only=False)
     prior_precision = c * (mat.T @ mat)
 
     return _fit_gp(u, obs_dict, obs_noise, prior_precision, calc_std=calc_std, calc_lml=calc_lml,
                     include_initial_cond=include_initial_cond, include_terminal_cond=include_terminal_cond,
-                    include_boundary_cond=include_boundary_cond, regularisation=regularisation)
+                    include_boundary_cond=include_boundary_cond, regularisation=regularisation,
+                    return_prior_precision=return_prior_precision, return_posterior_precision=return_posterior_precision)
 
 def _fit_gp(ground_truth, obs_dict, obs_noise, prior_precision, calc_std=False, calc_lml=False,
             include_initial_cond=False, include_terminal_cond=False, include_boundary_cond=False,
-            regularisation=0):
+            regularisation=0, return_prior_precision=False, return_posterior_precision=False):
     # Process args
     shape = ground_truth.shape
     N = np.prod(shape)
@@ -69,6 +70,14 @@ def _fit_gp(ground_truth, obs_dict, obs_noise, prior_precision, calc_std=False, 
         y = np.array([obs_dict[tuple(idx)] for idx in obs_idxs])
         n = len(y)
         res['log_marginal_likelihood'] = 0.5 * (L.logdet() - y.T @ P @ y - n * np.log(2 * np.pi))
+
+    # Optionally return prior precision
+    if return_prior_precision:
+        res['prior_precision'] = prior_precision
+
+    # Optionally return posterior precision
+    if return_posterior_precision:
+        res['posterior_precision'] = posterior_precision
     return res
 
 def fit_rbf_gp(u, obs_dict, X_test, dx, dt, obs_noise):
