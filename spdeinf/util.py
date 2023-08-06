@@ -1,5 +1,4 @@
 import numpy as np
-from jax.experimental import sparse as jsparse
 
 def operator_to_matrix(diff_op, shape, interior_only=True):
     """
@@ -99,9 +98,3 @@ def swap_cols(arr, i=0, j=1):
     new = arr.copy()
     new.T[[i, j]] = new.T[[j, i]]
     return new
-
-def scipy2jax_csr(A):
-    """
-    Convert a SciPy CSR to a Jax CSR matrix
-    """
-    return jsparse.CSR((A.data, A.indices, A.indptr), shape=A.shape)
