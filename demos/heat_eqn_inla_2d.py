@@ -1,5 +1,7 @@
+import itertools
 import numpy as np
 from scipy import sparse
+from scipy.linalg import eigh
 from scipy.optimize import minimize, fmin_bfgs, fmin_l_bfgs_b
 from scipy.special import loggamma
 from sksparse.cholmod import cholesky
@@ -158,6 +160,7 @@ alpha_map = opt["x"][0]
 t_obs_map = opt["x"][1]
 obs_noise_map = 1 / t_obs_map
 
+# Calculate hessian
 def hessian(fun, x0, epsilon=1e-3):
     # epsilon = np.sqrt(np.finfo(float).eps)
     n = len(x0)
@@ -177,14 +180,62 @@ def hessian(fun, x0, epsilon=1e-3):
             hess[j, i] = hess[i, j]
     return hess
 
-H = hessian(neg_logpdf_mp, [alpha_map, t_obs_map])
-print(H)
+# Calculate eigenvectors of Hessian along which to sample
+H = hessian(neg_logpdf_mp, [alpha_map, t_obs_map]) # H is (M, M)
+H_w, H_v = eigh(H) # Note H_v is (M, N)
+H_v = -H_v # Flip just for intuition
+H_v_origins = np.array([[t_obs_map], [alpha_map]]).repeat(2, axis=1)
+print(H_w)
+print(H_v)
+
+# Sample along eigenvectors
+x0 = np.array([alpha_map, t_obs_map])
+p0 = -neg_logpdf_mp(x0)
+thresh = 5
+step_size = 2
+samples_x = []
+samples_p = []
+evec_scales = np.array([10, 0.015])
+N_evec = H_v.shape[1]
+ranges = []
+for i, evec in enumerate(H_v.T):
+    r = []
+    for dir in [-1, 1]:
+        offset = 0
+        xS = x0.copy()
+        while p0 + neg_logpdf_mp(xS) < thresh:
+            samples_x.append(xS.copy())
+            samples_p.append(-neg_logpdf_mp(xS))
+            offset += dir
+            xS = x0 + offset * step_size * evec_scales[i] * evec
+            # print(step_size * dir * evec)
+        r.append(offset - dir)
+    ranges.append(r)
+print(ranges)
+
+def generate_combinations(ranges):
+    # Convert the 2-tuple ranges to aranges
+    range_generators = [range(start, end+1) for start, end in ranges]
+    # Compute the cartesian product of the lists
+    return itertools.product(*range_generators)
+
+for offset in generate_combinations(ranges):
+    xS = x0 + step_size * (evec_scales * offset * H_v).sum(axis=1)
+    pS = -neg_logpdf_mp(xS)
+    if p0 - pS < thresh:
+        samples_x.append(xS)
+        samples_p.append(pS)
+
+samples_x = np.array(samples_x)
+samples_p = np.array(samples_p)
 
 # Plot marg. posterior
-plt.contourf(t_obss, alphas, log_marg_post.sum(axis=-1), levels=20)
+plt.contourf(t_obss, alphas, log_marg_post.sum(axis=-1), levels=50)
 plt.scatter(t_obs_map, alpha_map, c='r', marker='x', label="MAP $\\theta$")
 plt.scatter(t_obs_prior_mode, alpha_prior_mode, c='b', marker='x', label="Prior mode $\\theta$")
 plt.scatter(1 / obs_noise, alpha_true, c='m', marker='x', label="True $\\theta$")
+plt.scatter(samples_x[:,1], samples_x[:,0], label="Sampled points")
+plt.quiver(*H_v_origins, H_v[1,:], H_v[0,:], width=0.005, scale=8, label="Eigenvectors of Hessian")
 plt.xlabel('$\\tau_{obs}$')
 plt.ylabel('$\\alpha$')
 plt.title('$\\log \\widetilde{p}(\\theta | y)$')
