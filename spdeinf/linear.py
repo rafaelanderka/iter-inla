@@ -61,6 +61,7 @@ def _fit_gp(ground_truth, obs_dict, obs_noise, prior_precision, calc_std=False, 
     # Optionally compute posterior variance/std.
     if calc_std:
         posterior_var = posterior_precision_cholesky.spinv().diagonal().reshape(shape)
+        res['posterior_var'] = posterior_var
         res['posterior_std'] = np.sqrt(posterior_var)
 
     # Optionally compute log evidence
@@ -78,6 +79,7 @@ def _fit_gp(ground_truth, obs_dict, obs_noise, prior_precision, calc_std=False, 
     # Optionally return posterior precision
     if return_posterior_precision:
         res['posterior_precision'] = posterior_precision
+        res['posterior_precision_chol'] = posterior_precision_cholesky
     return res
 
 def fit_rbf_gp(u, obs_dict, X_test, dx, dt, obs_noise):

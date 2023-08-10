@@ -116,21 +116,24 @@ def _logpdf_marginal_posterior(a, t_obs, t_a, a_0, Q_u, Q_uy, Q_obs, mu_u, mu_uy
     log_p_yua = 0.5 * (Q_obs_logdet - diff_obs_mu_uy.T @ Q_obs @ diff_obs_mu_uy - N * log_2pi)
 
     # Compute full conditional terms
-    log_p_uya = -0.5 * (Q_uy_logdet - M * log_2pi)
+    log_p_uya = 0.5 * (Q_uy_logdet - M * log_2pi)
 
-    return np.array([log_p_a, log_p_t_obs, log_p_ua, log_p_yua, log_p_uya])
+    logpdf = log_p_a + log_p_t_obs + log_p_ua + log_p_yua - log_p_uya
+    return logpdf
 
-def logpdf_marginal_posterior(a, t_obs, diff_op_gen, u, obs_dict, obs_noise, obs_count, obs_vals, obs_idxs_flat, tau_alpha, alpha_0):
+def logpdf_marginal_posterior(a, t_obs, diff_op_gen, u, obs_dict, obs_noise, obs_count, obs_vals, obs_idxs_flat, tau_alpha, alpha_0, return_posterior_params=False):
     diff_op_guess = diff_op_gen(a)
-    res = linear.fit_spde_gp(u, obs_dict, 1 / t_obs, diff_op_guess, calc_std=False, calc_lml=False, include_boundary_cond=True,
+    res = linear.fit_spde_gp(u, obs_dict, 1 / t_obs, diff_op_guess, calc_std=return_posterior_params, calc_lml=False, include_boundary_cond=True,
                              return_prior_precision=True, return_posterior_precision=True, regularisation=1e-5)
     Q_u = res['prior_precision']
     Q_uy = res['posterior_precision']
     Q_obs = sparse.diags([t_obs ** 2], 0, shape=(obs_count, obs_count), format='csc')
     mu_u = np.zeros_like(u).flatten()
     mu_uy = res['posterior_mean'].flatten()
-    return _logpdf_marginal_posterior(a, t_obs, tau_alpha, alpha_0, Q_u, Q_uy, Q_obs, mu_u, mu_uy, obs_vals, obs_idxs_flat)
-
+    logpdf = _logpdf_marginal_posterior(a, t_obs, tau_alpha, alpha_0, Q_u, Q_uy, Q_obs, mu_u, mu_uy, obs_vals, obs_idxs_flat)
+    if return_posterior_params:
+        return logpdf, res['posterior_mean'], res['posterior_var']
+    return logpdf
 
 # Sweep marginal posterior
 tau_alpha = 1.
@@ -147,13 +150,13 @@ t_obs_min = 1 / t_obs_count
 t_obs_prior_mode = 40
 t_obss = np.linspace(t_obs_min , t_obs_max, t_obs_count)
 
-log_marg_post = np.empty((alpha_count, t_obs_count, 5))
+log_marg_post = np.empty((alpha_count, t_obs_count))
 for i, a in tqdm(enumerate(alphas), total=alpha_count):
     for j, t_obs in enumerate(t_obss):
-        log_marg_post[i,j,:] = logpdf_marginal_posterior(a, t_obs, diff_op_gen, u, obs_dict, obs_noise, obs_count, obs_vals, obs_idxs_flat, tau_alpha, alpha_0)
+        log_marg_post[i,j] = logpdf_marginal_posterior(a, t_obs, diff_op_gen, u, obs_dict, obs_noise, obs_count, obs_vals, obs_idxs_flat, tau_alpha, alpha_0)
 
 # Find MAP from parameter marginal posterior
-neg_logpdf_mp = lambda x: -np.sum(logpdf_marginal_posterior(x[0], x[1], diff_op_gen, u, obs_dict, obs_noise, obs_count, obs_vals, obs_idxs_flat, tau_alpha, alpha_0), axis=-1)
+neg_logpdf_mp = lambda x: -logpdf_marginal_posterior(x[0], x[1], diff_op_gen, u, obs_dict, obs_noise, obs_count, obs_vals, obs_idxs_flat, tau_alpha, alpha_0)
 opt = minimize(fun=neg_logpdf_mp, x0=[0.2, 200], method="Nelder-Mead")
 print(opt)
 alpha_map = opt["x"][0]
@@ -188,24 +191,31 @@ H_v_origins = np.array([[t_obs_map], [alpha_map]]).repeat(2, axis=1)
 print(H_w)
 print(H_v)
 
+logpdf_mp_full = lambda x: logpdf_marginal_posterior(x[0], x[1], diff_op_gen, u, obs_dict, obs_noise, obs_count, obs_vals, obs_idxs_flat, tau_alpha, alpha_0, return_posterior_params=True)
+
 # Sample along eigenvectors
 x0 = np.array([alpha_map, t_obs_map])
-p0 = -neg_logpdf_mp(x0)
+p0, post_mean_x0, post_var_x0 = logpdf_mp_full(x0)
 thresh = 5
 step_size = 2
-samples_x = []
-samples_p = []
+samples_x = [x0]
+samples_p = [p0]
+samples_mu = [post_mean_x0]
+samples_var = [post_var_x0]
 evec_scales = np.array([10, 0.015])
 N_evec = H_v.shape[1]
 ranges = []
 for i, evec in enumerate(H_v.T):
     r = []
     for dir in [-1, 1]:
-        offset = 0
-        xS = x0.copy()
-        while p0 + neg_logpdf_mp(xS) < thresh:
+        offset = dir
+        xS = x0 + offset * step_size * evec_scales[i] * evec
+        while p0 - logpdf_mp_full(xS)[0] < thresh:
+            pS, post_mean, post_var = logpdf_mp_full(xS)
             samples_x.append(xS.copy())
-            samples_p.append(-neg_logpdf_mp(xS))
+            samples_p.append(pS)
+            samples_mu.append(post_mean)
+            samples_var.append(post_var)
             offset += dir
             xS = x0 + offset * step_size * evec_scales[i] * evec
             # print(step_size * dir * evec)
@@ -220,17 +230,27 @@ def generate_combinations(ranges):
     return itertools.product(*range_generators)
 
 for offset in generate_combinations(ranges):
+    if 0 in offset:
+        continue
     xS = x0 + step_size * (evec_scales * offset * H_v).sum(axis=1)
-    pS = -neg_logpdf_mp(xS)
+    pS, post_mean, post_var = logpdf_mp_full(xS)
     if p0 - pS < thresh:
         samples_x.append(xS)
         samples_p.append(pS)
-
+        samples_mu.append(post_mean)
+        samples_var.append(post_var)
 samples_x = np.array(samples_x)
 samples_p = np.array(samples_p)
+samples_mu = np.array(samples_mu)
+samples_var = np.array(samples_var)
 
-# Plot marg. posterior
-plt.contourf(t_obss, alphas, log_marg_post.sum(axis=-1), levels=50)
+# Exponentiate and normalise samples of marginal posterior
+samples_p = np.exp(samples_p)
+samples_p /= np.sum(samples_p)
+print(samples_p)
+
+# Plot marg. parameter posterior
+plt.contourf(t_obss, alphas, log_marg_post, levels=50)
 plt.scatter(t_obs_map, alpha_map, c='r', marker='x', label="MAP $\\theta$")
 plt.scatter(t_obs_prior_mode, alpha_prior_mode, c='b', marker='x', label="Prior mode $\\theta$")
 plt.scatter(1 / obs_noise, alpha_true, c='m', marker='x', label="True $\\theta$")
@@ -241,6 +261,13 @@ plt.ylabel('$\\alpha$')
 plt.title('$\\log \\widetilde{p}(\\theta | y)$')
 plt.legend()
 plt.show()
+
+# Compute posterior marginal for field
+posterior_mean_marg = (samples_p[:,None,None] * samples_mu).sum(axis=0)
+posterior_marg_second_moment = (samples_p[:,None,None] * (samples_var**2 + samples_mu**2)).sum(axis=0)
+posterior_var_marg = posterior_marg_second_moment - posterior_mean_marg ** 2
+posterior_std_marg = np.sqrt(posterior_var_marg)
+print(f'Marginal mean MSE={metrics.mse(u, posterior_mean_marg)}')
 
 # Fit with MAP estimate of alpha and obs noise
 diff_op_map = diff_op_gen(alpha_map)
@@ -267,3 +294,4 @@ plot_kwargs = {
         }
 plotting.plot_gp_2d(u, posterior_mean_map, posterior_std_map, obs_idxs, 'figures/heat_eqn/heat_eqn_inla_alpha_map.png', **plot_kwargs)
 plotting.plot_gp_2d(u, posterior_mean_true, posterior_std_true, obs_idxs, 'figures/heat_eqn/heat_eqn_inla_alpha_true.png', **plot_kwargs)
+plotting.plot_gp_2d(u, posterior_mean_marg, posterior_std_marg, obs_idxs, 'figures/heat_eqn/heat_eqn_inla_alpha_marg.png', **plot_kwargs)
