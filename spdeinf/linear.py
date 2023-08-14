@@ -25,7 +25,7 @@ def _fit_gp(ground_truth, obs_dict, obs_noise, prior_precision, calc_std=False, 
     shape = ground_truth.shape
     N = np.prod(shape)
     obs_idxs = np.array(list(obs_dict.keys()), dtype=int)
-    obs_noise_inv_sq = obs_noise**(-2)
+    obs_precision = obs_noise**(-2)
 
     # Get boundary indices
     boundary_idxs = util.get_boundary_indices(shape, include_initial_cond=include_initial_cond, 
@@ -36,10 +36,10 @@ def _fit_gp(ground_truth, obs_dict, obs_noise, prior_precision, calc_std=False, 
     grid_idxs = util.get_domain_indices(shape)
     mask = np.zeros(N)
     for idx in obs_idxs:
-        mask[grid_idxs[tuple(idx)]] = obs_noise_inv_sq
+        mask[grid_idxs[tuple(idx)]] = obs_precision
     obs_mask = mask.copy().astype(bool)
     for idx in boundary_idxs:
-        mask[idx] = obs_noise_inv_sq
+        mask[idx] = obs_precision
 
     # Construct posterior precision
     posterior_precision = prior_precision + sparse.diags(mask, format="csr")
@@ -49,9 +49,9 @@ def _fit_gp(ground_truth, obs_dict, obs_noise, prior_precision, calc_std=False, 
     # Construct posterior shift
     posterior_shift = np.zeros(np.prod(shape))
     for idx in obs_idxs:
-        posterior_shift[grid_idxs[tuple(idx)]] = obs_dict[tuple(idx)] * obs_noise_inv_sq
+        posterior_shift[grid_idxs[tuple(idx)]] = obs_dict[tuple(idx)] * obs_precision
     for idx in boundary_idxs:
-        posterior_shift[idx] = ground_truth.flatten()[idx] * obs_noise_inv_sq
+        posterior_shift[idx] = ground_truth.flatten()[idx] * obs_precision
     
     # Compute posterior mean
     res = dict()

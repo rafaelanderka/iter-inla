@@ -4,7 +4,7 @@ from scipy.linalg import eigh
 from scipy.optimize import minimize
 
 def sample_parameter_posterior(logpdf, x0, opt_method="Nelder-Mead", sampling_thresh=5,
-                               sampling_step_size=2, sampling_evec_scales=None):
+                               sampling_step_size=2, sampling_evec_scales=None, tol=1e-7):
     # Process args
     if not sampling_evec_scales:
         sampling_evec_scales = len(x0) * [1]
@@ -16,7 +16,7 @@ def sample_parameter_posterior(logpdf, x0, opt_method="Nelder-Mead", sampling_th
 
     # Find the mode of the parameter posterior
     print("Finding parameter posterior mode...")
-    opt = minimize(fun=neg_logpdf, x0=x0, method=opt_method)
+    opt = minimize(fun=neg_logpdf, x0=x0, method=opt_method, bounds=[(0, None), (1, None)])
     x_map = opt["x"]
     print(opt)
 
@@ -39,15 +39,18 @@ def sample_parameter_posterior(logpdf, x0, opt_method="Nelder-Mead", sampling_th
         for dir in [-1, 1]:
             offset = dir
             xS = x_map + offset * sampling_step_size * sampling_evec_scales[i] * evec
-            while p0 - logpdf(xS) < sampling_thresh:
-                pS, post_mean, post_var = logpdf_full(xS)
-                samples_x.append(xS.copy())
-                samples_p.append(pS)
-                samples_mu.append(post_mean)
-                samples_var.append(post_var)
-                offset += dir
-                xS = x_map + offset * sampling_step_size * sampling_evec_scales[i] * evec
-                # print(sampling_step_size * dir * evec)
+            if not (xS <= 0).any():
+                while p0 - logpdf(xS) < sampling_thresh:
+                    pS, post_mean, post_var = logpdf_full(xS)
+                    samples_x.append(xS.copy())
+                    samples_p.append(pS)
+                    samples_mu.append(post_mean)
+                    samples_var.append(post_var)
+                    offset += dir
+                    xS = x_map + offset * sampling_step_size * sampling_evec_scales[i] * evec
+                    if (xS <= 0).any():
+                        continue
+                    # print(sampling_step_size * dir * evec)
             r.append(offset - dir)
         ranges.append(r)
     print("Sampling offset ranges:", ranges)
@@ -57,6 +60,8 @@ def sample_parameter_posterior(logpdf, x0, opt_method="Nelder-Mead", sampling_th
         if 0 in offset:
             continue
         xS = x_map + sampling_step_size * (sampling_evec_scales * offset * H_v).sum(axis=1)
+        if (xS <= 0).any():
+            continue
         pS, post_mean, post_var = logpdf_full(xS)
         if p0 - pS < sampling_thresh:
             samples_x.append(xS)
@@ -69,8 +74,11 @@ def sample_parameter_posterior(logpdf, x0, opt_method="Nelder-Mead", sampling_th
     samples_var = np.array(samples_var)
 
     # Exponentiate and normalise samples of marginal posterior
-    samples_p = np.exp(samples_p)
+    print(samples_p)
+    samples_p = np.exp(samples_p - samples_p.mean())
+    print(samples_p)
     samples_p /= np.sum(samples_p)
+    print(samples_p)
     return [samples_x, samples_p, samples_mu, samples_var], H_v
 
 def compute_field_posterior_stats(samples):
