@@ -68,9 +68,9 @@ def burgers_odes(u, t, k, mu, nu):
 u = odeint(burgers_odes, u0, T, args=(k, mu, nu_true,), mxstep=5000).T
 
 # Sample observations
-obs_noise = 1e-2
+obs_std = 1e-2
 obs_count = 100
-obs_dict = util.sample_observations(u, obs_count, obs_noise, extent=(None, None, 0, None))
+obs_dict = util.sample_observations(u, obs_count, obs_std, extent=(None, None, 0, None))
 obs_idxs = np.array(list(obs_dict.keys()), dtype=int)
 print("Number of observations:", obs_idxs.shape[0])
 
@@ -184,13 +184,6 @@ def logpdf_marginal_posterior(x, u0, obs_dict, diff_op_gen, prior_mean_gen, retu
 
     # Compute prior mean
     prior_mean = prior_mean_gen(u0, nu)
-    # plt.imshow(prior_mean)
-    # plt.show()
-
-    # Subtract prior mean from observations
-    obs_dict_diff = obs_dict.copy()
-    for idx in obs_dict_diff.keys():
-        obs_dict_diff[idx] = obs_dict_diff[idx] - prior_mean[idx]
 
     # Construct precision matrix corresponding to the linear differential operator
     diff_op_guess = diff_op_gen(u0, nu)
@@ -203,14 +196,14 @@ def logpdf_marginal_posterior(x, u0, obs_dict, diff_op_gen, prior_mean_gen, retu
     prior_precision = LL
 
     # Get "data term" of full conditional
-    res = linear._fit_gp(u - prior_mean, obs_dict_diff, 1 / t_obs, prior_precision, calc_std=return_conditional_params, calc_lml=False,
+    res = linear._fit_gp(u, obs_dict, 1 / t_obs, prior_mean, prior_precision, calc_std=return_conditional_params, calc_lml=False,
                          include_initial_cond=False, return_posterior_precision=True, regularisation=1e-5)
 
     # Define prior and full condtional params
     mu_u = prior_mean
     Q_u = prior_precision
-    # mu_uy = res['posterior_mean'] + prior_mean
-    mu_uy = u
+    mu_uy = res['posterior_mean']
+    # mu_uy = u # For testing
     Q_uy = res['posterior_precision']
     Q_obs = sparse.diags([t_obs ** 2], 0, shape=(obs_count, obs_count), format='csc')
 
@@ -226,7 +219,7 @@ def logpdf_marginal_posterior(x, u0, obs_dict, diff_op_gen, prior_mean_gen, retu
 # Perform iterative optimisation
 max_iter = 10
 model = nonlinear.NonlinearINLASPDERegressor(u, dx, dt, diff_op_gen, prior_mean_gen, logpdf_marginal_posterior, mixing_coef=1)
-model.fit(obs_dict, obs_noise, max_iter=max_iter, animated=True, calc_std=True)
+model.fit(obs_dict, obs_std, max_iter=max_iter, animated=True, calc_std=True)
 iter_count = len(model.mse_hist)
 
 # Save animation
@@ -257,7 +250,7 @@ model.save_animation("figures/burgers_eqn/burgers_eqn_inla_iter_animation.gif", 
 
 # # Fit with naive linearisation
 # model_naive = nonlinear.NonlinearINLASPDERegressor(u, dx, dt, diff_op_gen_naive, prior_mean_gen_naive)
-# model_naive.fit(obs_dict, obs_noise, max_iter=max_iter, animated=False, calc_std=True)
+# model_naive.fit(obs_dict, obs_std, max_iter=max_iter, animated=False, calc_std=True)
 # iter_count_naive = len(model_naive.mse_hist)
 
 # # Plot convergence history
@@ -272,7 +265,7 @@ model.save_animation("figures/burgers_eqn/burgers_eqn_inla_iter_animation.gif", 
 # plt.show()
 
 # Fit with RBF
-# posterior_mean_rbf, posterior_std_rbf = linear.fit_rbf_gp(u, obs_dict, X_test, dx, dt, obs_noise)
+# posterior_mean_rbf, posterior_std_rbf = linear.fit_rbf_gp(u, obs_dict, X_test, dx, dt, obs_std)
 # print(metrics.mse(u, posterior_mean_rbf))
 
 # Plot results

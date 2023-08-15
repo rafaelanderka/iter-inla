@@ -10,18 +10,22 @@ from spdeinf import util
 np.set_printoptions(threshold=np.inf)
 np.set_printoptions(linewidth=np.inf)
 
+debug = False
 diff_op = FinDiff(0, 1, 1) - 0.1 * FinDiff(1, 1, 2)
 n_obs = 100
 ns = []
 precisions = []
 shifts = []
-for k in np.arange(10, 1010 + 1, 100):
+
+print("Computing matrices to factor and systems to solve...")
+ks = np.arange(10, 1010 + 1, 100)
+for k in ks:
     start_time = time()
     n = k * k
     ns.append(n)
     shape = (k, k)
     mat = util.operator_to_matrix(diff_op, shape, interior_only=False)
-    if k == 10:
+    if debug and k == 10:
         M = mat.T @ mat
         print(M.todense())
         non_zero_counts = np.count_nonzero(M.toarray(), axis=1)
@@ -35,15 +39,16 @@ for k in np.arange(10, 1010 + 1, 100):
     shifts.append(shift)
     print(f'k = {k}, time = {time() - start_time} s')
 
+print("Factoring matrices, solving systems, inverting partially...")
 ts = []
-for precision, shift in zip(precisions, shifts):
+for k, precision, shift in zip(ks, precisions, shifts):
     start_time = time()
     posterior_precision_cholesky = cholesky(precision)
     posterior_mean = posterior_precision_cholesky(shift)
     posterior_var = posterior_precision_cholesky.spinv()
     t = time() - start_time
     ts.append(t)
-    print(f'time = {t} s')
+    print(f'k = {k}, time = {t} s')
 
 for n, t in zip(ns, ts):
     print(t/n)
@@ -53,3 +58,4 @@ plt.xlabel("N")
 plt.ylabel("t [s]")
 plt.title("Time to compute posterior vs. field size")
 plt.savefig("figures/complexity_test.png")
+plt.show()

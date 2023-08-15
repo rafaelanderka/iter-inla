@@ -14,7 +14,7 @@ mpl.rcParams['figure.dpi'] = 200
 from spdeinf import inla, linear, metrics, plotting, util
 
 # Define parameters of the stochastic heat equation
-alpha_true = 0.2
+alpha_true = 0.15
 W_amp = 0
 
 # Define parameters of the parameter priors
@@ -73,9 +73,9 @@ plt.ylabel('x')
 plt.show()
 
 # Sample observations
-obs_noise = 1e-2
+obs_std = 1e-2
 obs_count = 50
-obs_dict = util.sample_observations(u, obs_count, obs_noise)
+obs_dict = util.sample_observations(u, obs_count, obs_std)
 obs_idxs = np.array(list(obs_dict.keys()), dtype=int)
 obs_idxs_flat = shape[1] * obs_idxs[:,0] + obs_idxs[:,1]
 obs_vals = np.array(list(obs_dict.values()))
@@ -131,13 +131,15 @@ def logpdf_marginal_posterior(x, return_conditional_params=False):
 
     # Fit linear model
     diff_op_guess = diff_op_gen(a)
-    res = linear.fit_spde_gp(u, obs_dict, 1 / t_obs, diff_op_guess, calc_std=return_conditional_params, calc_lml=False, include_boundary_cond=True,
-                             return_prior_precision=True, return_posterior_precision=True, regularisation=1e-5)
+    res = linear.fit_spde_gp(u, obs_dict, 1 / t_obs, diff_op_guess, prior_mean=0, calc_std=return_conditional_params,
+                             calc_lml=False, include_boundary_cond=True, return_prior_precision=True,
+                             return_posterior_precision=True, regularisation=1e-5)
     Q_u = res['prior_precision']
     Q_uy = res['posterior_precision']
     Q_obs = sparse.diags([t_obs ** 2], 0, shape=(obs_count, obs_count), format='csc')
     mu_u = np.zeros_like(u).flatten()
     mu_uy = res['posterior_mean'].flatten()
+    # mu_uy = u.flatten()
 
     # Compute marginal posterior
     logpdf = _logpdf_marginal_posterior(a, t_obs, Q_u, Q_uy, Q_obs, mu_u, mu_uy)
@@ -155,7 +157,7 @@ samples_var = samples[3]
 # Get MAP parameters for convenience
 alpha_map = samples_x[0,0]
 t_obs_map = samples_x[0,1]
-obs_noise_map = 1 / t_obs_map
+obs_std_map = 1 / t_obs_map
 
 # Sweep marginal posterior for plotting
 alpha_max = 1
@@ -163,7 +165,7 @@ alpha_count = 10
 alpha_min = 1 / alpha_count
 alphas = np.linspace(alpha_min , alpha_max, alpha_count)
 
-t_obs_max = 1000
+t_obs_max = 500
 t_obs_count = 20
 t_obs_min = 1 / t_obs_count
 t_obs_prior_mode = 40
@@ -178,13 +180,15 @@ for i, a in tqdm(enumerate(alphas), total=alpha_count):
 plt.contourf(t_obss, alphas, log_marg_post, levels=50)
 plt.scatter(t_obs_map, alpha_map, c='r', marker='x', label="MAP $\\theta$")
 plt.scatter(t_obs_prior_mode, alpha_prior_mode, c='b', marker='x', label="Prior mode $\\theta$")
-plt.scatter(1 / obs_noise, alpha_true, c='m', marker='x', label="True $\\theta$")
-plt.scatter(samples_x[:,1], samples_x[:,0], label="Sampled points")
+plt.scatter(1 / obs_std, alpha_true, c='m', marker='x', label="True $\\theta$")
+plt.scatter(samples_x[:,1], samples_x[:,0], s=5, c='k', label="Sampled points")
 # plt.quiver(*H_v_origins, H_v[1,:], H_v[0,:], width=0.005, scale=8, label="Eigenvectors of Hessian")
 plt.xlabel('$\\tau_{obs}$')
 plt.ylabel('$\\alpha$')
 plt.title('$\\log \\widetilde{p}(\\theta | y)$')
 plt.legend()
+plt.tight_layout()
+plt.savefig("figures/heat_eqn/heat_eqn_inla_parameter_posterior.png", dpi=200)
 plt.show()
 
 # Compute posterior marginal for field
@@ -193,14 +197,14 @@ print(f'Marginal mean MSE={metrics.mse(u, posterior_mean_marg)}')
 
 # Fit with MAP estimate of alpha and obs noise
 diff_op_map = diff_op_gen(alpha_map)
-res = linear.fit_spde_gp(u, obs_dict, obs_noise_map, diff_op_map, calc_std=True, calc_lml=False, include_boundary_cond=True)
+res = linear.fit_spde_gp(u, obs_dict, obs_std_map, diff_op_map, calc_std=True, calc_lml=False, include_boundary_cond=True)
 posterior_mean_map = res['posterior_mean']
 posterior_std_map = res['posterior_std']
 print(f'MAP alpha={alpha_map}, MSE={metrics.mse(u, posterior_mean_map)}')
 
 # Fit with true alpha and obs noise
 diff_op_true = diff_op_gen(alpha_true)
-res = linear.fit_spde_gp(u, obs_dict, obs_noise, diff_op_true, calc_std=True, calc_lml=False, include_boundary_cond=True)
+res = linear.fit_spde_gp(u, obs_dict, obs_std, diff_op_true, calc_std=True, calc_lml=False, include_boundary_cond=True)
 posterior_mean_true = res['posterior_mean']
 posterior_std_true = res['posterior_std']
 print(f'True alpha={alpha_true}, MSE={metrics.mse(u, posterior_mean_true)}')

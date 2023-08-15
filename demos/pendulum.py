@@ -9,7 +9,7 @@ from spdeinf import nonlinear, util
 ## Generate data from nonlinear damped pendulum eqn.
 
 # Define parameters of damped pendulum
-b = 0.5 
+b = 0.3
 c = 5.
 
 # Create temporal discretisation
@@ -64,18 +64,18 @@ prior_mean_gen = lambda u: get_prior_mean(u, diff_op_gen, c)
 ## Fit GP with non-linear SPDE prior from damped pendulum
 
 # Sample observations
-obs_noise = 1e-1
-obs_count = 50
+obs_std = 1e-1
+obs_count = 20
 obs_lim = 50
-obs_dict = util.sample_observations(u, obs_count, obs_noise, extent=(None, None, 0, obs_lim))
+obs_dict = util.sample_observations(u, obs_count, obs_std, extent=(None, None, 0, obs_lim))
 obs_idxs = np.array(list(obs_dict.keys()), dtype=int)
 obs_vals = np.array(list(obs_dict.values()))
 print("Number of observations:", obs_idxs.shape[0])
 
 # Perform iterative optimisation
-max_iter = 40
+max_iter = 20
 model = nonlinear.NonlinearSPDERegressor(u, 1, dt, diff_op_gen, prior_mean_gen, mixing_coef=0.5)
-model.fit(obs_dict, obs_noise, max_iter=max_iter, animated=False, calc_std=True)
+model.fit(obs_dict, obs_std, max_iter=max_iter, animated=False, calc_std=True)
 iter_count = len(model.mse_hist)
 
 # Plot fit

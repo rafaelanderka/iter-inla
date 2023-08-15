@@ -63,9 +63,9 @@ plt.ylabel('x')
 plt.show()
 
 # Sample observations
-obs_noise = 1e-4
+obs_std = 1e-4
 obs_count = 20
-obs_dict = util.sample_observations(u, obs_count, obs_noise)
+obs_dict = util.sample_observations(u, obs_count, obs_std)
 obs_idxs = np.array(list(obs_dict.keys()), dtype=int)
 obs_idxs_flat = shape[1] * obs_idxs[:,0] + obs_idxs[:,1]
 obs_vals = np.array(list(obs_dict.values()))
@@ -110,17 +110,16 @@ def _logpdf_marginal_posterior(a, t_a, a_0, Q_u, Q_uy, Q_obs, mu_u, mu_uy, obs_v
 
     return np.array([log_p_a, log_p_ua, log_p_yua, log_p_uya])
 
-def logpdf_marginal_posterior(a, diff_op_gen, u, obs_dict, obs_noise, obs_count, obs_vals, obs_idxs_flat, tau_alpha, alpha_0):
+def logpdf_marginal_posterior(a, diff_op_gen, u, obs_dict, obs_std, obs_count, obs_vals, obs_idxs_flat, tau_alpha, alpha_0):
     diff_op_guess = diff_op_gen(a)
-    res = linear.fit_spde_gp(u, obs_dict, obs_noise, diff_op_guess, calc_std=False, calc_lml=False, include_boundary_cond=True,
+    res = linear.fit_spde_gp(u, obs_dict, obs_std, diff_op_guess, calc_std=False, calc_lml=False, include_boundary_cond=True,
                              return_prior_precision=True, return_posterior_precision=True, regularisation=1e-5)
     Q_u = res['prior_precision']
     Q_uy = res['posterior_precision']
-    Q_obs = sparse.diags([obs_noise ** (-2)], 0, shape=(obs_count, obs_count), format='csc')
+    Q_obs = sparse.diags([obs_std ** (-2)], 0, shape=(obs_count, obs_count), format='csc')
     mu_u = np.zeros_like(u).flatten()
     mu_uy = res['posterior_mean'].flatten()
     return _logpdf_marginal_posterior(a, tau_alpha, alpha_0, Q_u, Q_uy, Q_obs, mu_u, mu_uy, obs_vals, obs_idxs_flat)
-
 
 # Sweep marginal posterior
 tau_alpha = 1.
@@ -132,75 +131,37 @@ alpha_prior_mode = np.exp(alpha_0 - tau_alpha ** (-2))
 alphas = np.linspace(alpha_min , alpha_max, alpha_count)
 log_marg_post = np.empty((alpha_count, 4))
 for i, a in tqdm(enumerate(alphas), total=alpha_count):
-    log_marg_post[i] = logpdf_marginal_posterior(a, diff_op_gen, u, obs_dict, obs_noise, obs_count, obs_vals, obs_idxs_flat, tau_alpha, alpha_0)
-# print(log_marg_post)
-
-# N_eval = 1
-# def callback(X):
-#     # print('Gello')
-#     global N_eval
-#     print(f'{N_eval:8d}   {X[0]:3.6f}   {-neg_logpdf_mp(X):3.6f}')
-#     N_eval += 1
-# print(f"{'Iter':8s}   {'alpha':9s}   {'log_pdf':9s}")
+    log_marg_post[i] = logpdf_marginal_posterior(a, diff_op_gen, u, obs_dict, obs_std, obs_count, obs_vals, obs_idxs_flat, tau_alpha, alpha_0)
 
 # Find MAP from parameter marginal posterior
-neg_logpdf_mp = lambda a: -np.sum(logpdf_marginal_posterior(a[0], diff_op_gen, u, obs_dict, obs_noise, obs_count, obs_vals, obs_idxs_flat, tau_alpha, alpha_0))
-# plt.plot(alphas, [neg_logpdf_mp([a]) for a in alphas])
-# plt.show()
+neg_logpdf_mp = lambda a: -np.sum(logpdf_marginal_posterior(a[0], diff_op_gen, u, obs_dict, obs_std, obs_count, obs_vals, obs_idxs_flat, tau_alpha, alpha_0))
 opt = minimize(fun=neg_logpdf_mp, x0=[0.5], method="Nelder-Mead")
 print(opt)
 alpha_map = opt["x"][0]
-# alpha_map = fmin_bfgs(f=neg_logpdf_mp, x0=0.5, callback=callback, maxiter=10000, disp=True)[0]
-# alpha_map = fmin_l_bfgs_b(func=neg_logpdf_mp, x0=[0.5],
-#                           bounds=[(0, None)], factr=1, approx_grad=True, disp=True)[0][0]
-
-def hessian(fun, x0, epsilon=1e-3):
-    # epsilon = np.sqrt(np.finfo(float).eps)
-    n = len(x0)
-    hess = np.zeros((n, n))
-    for i in range(n):
-        x1 = np.array(x0, copy=True)
-        x2 = np.array(x0, copy=True)
-        x1[i] += epsilon
-        x2[i] -= epsilon
-        hess[i, i] = (fun(x1) - 2 * fun(x0) + fun(x2)) / (epsilon ** 2)
-        for j in range(i+1, n):
-            x1[i] -= epsilon
-            x1[j] += epsilon
-            x2[i] += epsilon
-            x2[j] -= epsilon
-            hess[i, j] = (fun(x1) - fun(x2)) / (4 * epsilon ** 2)
-            hess[j, i] = hess[i, j]
-    return hess
-
-H = hessian(neg_logpdf_mp, [alpha_map])
-print(H)
 
 # Plot marg. posterior
-# marg_post_lines = plt.plot(alphas, log_marg_post)
 plt.plot(alphas, log_marg_post.sum(axis=1), label='$\\log \\widetilde{p}(\\alpha | y)$')
-# marg_post = np.exp(log_marg_post - log_marg_post.max(axis=0))
 marg_post = np.exp(log_marg_post.sum(axis=1))
-# plt.plot(alphas, marg_post, label='$\\log \\widetilde{p}(\\alpha | y)$')
 plt.axvline(alpha_map, color='sienna', ls='--', label="MAP $\\alpha$")
 plt.axvline(alpha_true, color='grey', ls=':', label="True $\\alpha$")
 plt.axvline(alpha_prior_mode, color='darkkhaki', ls='-.', label="Prior mode $\\alpha$")
 plt.xlabel('$\\alpha$')
 plt.ylabel('$\\log$ prob. + const.')
-# plt.legend(marg_post_lines, ['$\\log p(\\alpha)$', '$\\log p(u | \\alpha)$', '$\\log p(y | u, \\alpha)$', '$\\log p(u | y, \\alpha)$'])
 plt.legend()
+plt.tight_layout()
+plt.savefig("figures/heat_eqn/heat_eqn_inla_parameter_posterior.png", dpi=200)
 plt.show()
 
 # Fit with MAP estimate of alpha
 diff_op_map = diff_op_gen(alpha_map)
-res = linear.fit_spde_gp(u, obs_dict, obs_noise, diff_op_map, calc_std=True, calc_lml=False, include_boundary_cond=True)
+res = linear.fit_spde_gp(u, obs_dict, obs_std, diff_op_map, calc_std=True, calc_lml=False, include_boundary_cond=True)
 posterior_mean_map = res['posterior_mean']
 posterior_std_map = res['posterior_std']
 print(f'MAP alpha={alpha_map}, MSE={metrics.mse(u, posterior_mean_map)}')
 
 # Fit with true alpha
 diff_op_true = diff_op_gen(alpha_true)
-res = linear.fit_spde_gp(u, obs_dict, obs_noise, diff_op_true, calc_std=True, calc_lml=False, include_boundary_cond=True)
+res = linear.fit_spde_gp(u, obs_dict, obs_std, diff_op_true, calc_std=True, calc_lml=False, include_boundary_cond=True)
 posterior_mean_true = res['posterior_mean']
 posterior_std_true = res['posterior_std']
 print(f'True alpha={alpha_true}, MSE={metrics.mse(u, posterior_mean_true)}')

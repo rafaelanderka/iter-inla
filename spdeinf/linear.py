@@ -1,3 +1,4 @@
+import numbers
 import numpy as np
 from sksparse.cholmod import cholesky
 from scipy import sparse
@@ -6,26 +7,27 @@ from sklearn.gaussian_process.kernels import RBF
 
 from . import util
 
-def fit_spde_gp(u, obs_dict, obs_noise, diff_op, c=1, calc_std=False, calc_lml=False,
+def fit_spde_gp(u, obs_dict, obs_std, diff_op, prior_mean=0, c=1, calc_std=False, calc_lml=False,
                 include_initial_cond=False, include_terminal_cond=False, include_boundary_cond=False,
                 regularisation=0, return_prior_precision=False, return_posterior_precision=False):
     # Construct precision matrix corresponding to the linear differential operator
     mat = util.operator_to_matrix(diff_op, u.shape, interior_only=False)
     prior_precision = c * (mat.T @ mat)
 
-    return _fit_gp(u, obs_dict, obs_noise, prior_precision, calc_std=calc_std, calc_lml=calc_lml,
+    return _fit_gp(u, obs_dict, obs_std, prior_mean, prior_precision, calc_std=calc_std, calc_lml=calc_lml,
                     include_initial_cond=include_initial_cond, include_terminal_cond=include_terminal_cond,
                     include_boundary_cond=include_boundary_cond, regularisation=regularisation,
                     return_prior_precision=return_prior_precision, return_posterior_precision=return_posterior_precision)
 
-def _fit_gp(ground_truth, obs_dict, obs_noise, prior_precision, calc_std=False, calc_lml=False,
+def _fit_gp(ground_truth, obs_dict, obs_std, prior_mean, prior_precision, calc_std=False, calc_lml=False,
             include_initial_cond=False, include_terminal_cond=False, include_boundary_cond=False,
             regularisation=0, return_prior_precision=False, return_posterior_precision=False):
     # Process args
     shape = ground_truth.shape
     N = np.prod(shape)
+    gt_prior_diff = (ground_truth - prior_mean).flatten()
     obs_idxs = np.array(list(obs_dict.keys()), dtype=int)
-    obs_precision = obs_noise**(-2)
+    obs_precision = obs_std**(-2)
 
     # Get boundary indices
     boundary_idxs = util.get_boundary_indices(shape, include_initial_cond=include_initial_cond, 
@@ -49,14 +51,18 @@ def _fit_gp(ground_truth, obs_dict, obs_noise, prior_precision, calc_std=False, 
     # Construct posterior shift
     posterior_shift = np.zeros(np.prod(shape))
     for idx in obs_idxs:
-        posterior_shift[grid_idxs[tuple(idx)]] = obs_dict[tuple(idx)] * obs_precision
+        idx = tuple(idx)
+        pr_m = prior_mean if isinstance(prior_mean, numbers.Number) else prior_mean[idx]
+        posterior_shift[grid_idxs[idx]] = (obs_dict[idx] - pr_m) * obs_precision
     for idx in boundary_idxs:
-        posterior_shift[idx] = ground_truth.flatten()[idx] * obs_precision
+        posterior_shift[idx] = gt_prior_diff[idx] * obs_precision
     
     # Compute posterior mean
     res = dict()
     posterior_precision_cholesky = cholesky(posterior_precision)
-    res['posterior_mean'] = posterior_precision_cholesky(posterior_shift).reshape(shape)
+    posterior_mean_data_term = posterior_precision_cholesky(posterior_shift).reshape(shape)
+    res['posterior_mean'] = prior_mean + posterior_mean_data_term
+    res['posterior_mean_data_term'] = posterior_mean_data_term
 
     # Optionally compute posterior variance/std.
     if calc_std:
@@ -82,7 +88,7 @@ def _fit_gp(ground_truth, obs_dict, obs_noise, prior_precision, calc_std=False, 
         res['posterior_precision_chol'] = posterior_precision_cholesky
     return res
 
-def fit_rbf_gp(u, obs_dict, X_test, dx, dt, obs_noise):
+def fit_rbf_gp(u, obs_dict, X_test, dx, dt, obs_std):
     shape = u.shape
     # Extract the observations from the dictionary
     obs_idx = np.array(list(obs_dict.keys()), dtype=float)
@@ -111,7 +117,7 @@ def fit_rbf_gp(u, obs_dict, X_test, dx, dt, obs_noise):
     kernel = RBF()
 
     # Create a Gaussian Process Regressor with the RBF kernel
-    gp = GaussianProcessRegressor(kernel=kernel, alpha=obs_noise)
+    gp = GaussianProcessRegressor(kernel=kernel, alpha=obs_std)
 
     # Train the GP model on the observations
     gp.fit(obs_idx, obs_vals)

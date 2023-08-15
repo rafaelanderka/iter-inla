@@ -7,18 +7,18 @@ from spdeinf import linear, metrics, util, plotting
 ## Generate data from the heat equation
 
 # Define parameters of the stochastic heat equation
-alpha = 0.05
+alpha = 0.01
 W_amp = 0
 
 # Create spatial discretisation
 x_max = 1                       # Range of spatial domain
-dx = 0.1                        # Spatial delta
+dx = 0.01                        # Spatial delta
 N_x = int(x_max / dx) + 1       # Number of points in spatial discretisation
 xx = np.linspace(0, x_max, N_x) # Spatial array
 
 # Create temporal discretisation
 t_max = 1                       # Range of temporal domain
-dt = 0.1                        # Temporal delta
+dt = 0.01                        # Temporal delta
 N_t = int(t_max / dt) + 1       # Number of points in temporal discretisation
 tt = np.linspace(0, t_max, N_t) # Temporal array
 shape = (N_x, N_t)
@@ -51,20 +51,20 @@ plt.imshow(u)
 plt.show()
 
 # Sample observations
-obs_noise = 1e-2
-obs_count = 10
-obs_dict = util.sample_observations(u, obs_count, obs_noise)
+obs_std = 1e-2
+obs_count = 20
+obs_dict = util.sample_observations(u, obs_count, obs_std)
 obs_idxs = np.array(list(obs_dict.keys()), dtype=int)
 
 # Fit with SPDE prior
 diff_op_guess = diff_op_t - alpha * diff_op_xx
-res = linear.fit_spde_gp(u, obs_dict, obs_noise, diff_op_guess, calc_std=True, calc_lml=False)
+res = linear.fit_spde_gp(u, obs_dict, obs_std, diff_op_guess, prior_mean=0, calc_std=True, calc_lml=False)
 posterior_mean_pde = res['posterior_mean']
 posterior_std_pde = res['posterior_std']
 print(f'SPDE prior MSE={metrics.mse(u, posterior_mean_pde)}')
 
 # Fit with RBF prior
-posterior_mean_rbf, posterior_std_rbf = linear.fit_rbf_gp(u, obs_dict, X_test, dx, dt, obs_noise)
+posterior_mean_rbf, posterior_std_rbf = linear.fit_rbf_gp(u, obs_dict, X_test, dx, dt, obs_std)
 print(f'RBF prior MSE={metrics.mse(u, posterior_mean_rbf)}')
 
 # Plot results

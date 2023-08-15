@@ -40,25 +40,22 @@ pde = PDE(diff_op, W, bc)
 u = pde.solve()
 
 # Sample observations
-obs_noise = 1e-4
+obs_std = 1e-4
 obs_count = 100
-obs_dict = util.sample_observations(u, obs_count, obs_noise)
+obs_dict = util.sample_observations(u, obs_count, obs_std)
 obs_idxs = np.array(list(obs_dict.keys()), dtype=int)
 
 # Fit with PDE prior
 for a in np.linspace(0.01, 0.1, 10):
     diff_op_guess = FinDiff(0, dt, 1) - a * FinDiff(1, dx, 2)
-    res = linear.fit_spde_gp(u, obs_dict, obs_noise, diff_op_guess, calc_std=True, calc_lml=True)
+    res = linear.fit_spde_gp(u, obs_dict, obs_std, diff_op_guess, calc_std=True, calc_lml=True)
     posterior_mean_pde = res['posterior_mean']
     posterior_std_pde = res['posterior_std']
     log_marginal_likelihood = res['log_marginal_likelihood']
     print(f'a={a:.2f}, MSE={metrics.mse(u, posterior_mean_pde)}, LML={log_marginal_likelihood}')
-plotting.plot_gp_2d(u.T, posterior_mean_pde.T, posterior_std_pde.T, util.swap_cols(obs_idxs), 'figures/heat_eqn_test_pde.png',
-                  mean_vmin=-0.05, mean_vmax=1, std_vmin=0, std_vmax=0.06,
-                  diff_vmin=-0.3, diff_vmax=0.2)
 
 # # Fit with RBF prior
-# posterior_mean_rbf, posterior_std_rbf = linear.fit_rbf_gp(u, obs_dict, X_test, dx, dt, obs_noise)
+# posterior_mean_rbf, posterior_std_rbf = linear.fit_rbf_gp(u, obs_dict, X_test, dx, dt, obs_std)
 # print(metrics.mse(u, posterior_mean_rbf))
 # plotting.plot_gp_2d(u.T, posterior_mean_rbf.T, posterior_std_rbf.T, util.swap_cols(obs_idxs), 'figures/heat_eqn_test_rbf.png',
 #                   mean_vmin=-0.05, mean_vmax=1, std_vmin=0, std_vmax=0.06, diff_vmin=-0.2, diff_vmax=0.055)

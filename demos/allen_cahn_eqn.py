@@ -74,16 +74,16 @@ prior_mean_gen_naive = lambda u: get_prior_mean_naive(u, diff_op_gen, beta)
 ## Fit GP with non-linear SPDE prior from Allen-Cahn equation
 
 # Sample observations
-obs_noise = 1e-2
+obs_std = 1e-2
 obs_count = 256
-obs_dict = util.sample_observations(uu, obs_count, obs_noise, extent=(None, None, 0, 56))
+obs_dict = util.sample_observations(uu, obs_count, obs_std, extent=(None, None, 0, 56))
 obs_idxs = np.array(list(obs_dict.keys()), dtype=int)
 print("Number of observations:", obs_idxs.shape[0])
 
 # Perform iterative optimisation
 max_iter = 50
 model = nonlinear.NonlinearSPDERegressor(uu, dx, dt, diff_op_gen, prior_mean_gen, mixing_coef=0.5)
-model.fit(obs_dict, obs_noise, max_iter=max_iter, animated=True, calc_std=True)
+model.fit(obs_dict, obs_std, max_iter=max_iter, animated=True, calc_std=True)
 iter_count = len(model.mse_hist)
 
 # Plot convergence history

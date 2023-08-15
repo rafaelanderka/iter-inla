@@ -15,15 +15,15 @@ mu = 1
 nu = 0.03 # Kinematic viscosity coefficient
 
 # Create spatial discretisation
-L_x = 10                      # Range of the domain according to x [m]
-dx = 0.1                      # Infinitesimal distance
-N_x = int(L_x / dx)           # Points number of the spatial mesh
+L_x = 10                      # Range of spatial domain
+dx = 0.1                      # Spatial delta
+N_x = int(L_x / dx) + 1       # Number of points in spatial discretisation
 X = np.linspace(0, L_x, N_x)  # Spatial array
 
 # Create temporal discretisation
-L_t = 8                       # Duration of simulation [s]
-dt = 0.1                      # Infinitesimal time
-N_t = int(L_t / dt)           # Points number of the temporal mesh
+L_t = 8                       # Range of temporal domain
+dt = 0.1                      # Temporal delta
+N_t = int(L_t / dt) + 1       # Number of points in temporal discretisation
 T = np.linspace(0, L_t, N_t)  # Temporal array
 
 # Create test points
@@ -110,16 +110,16 @@ prior_mean_gen_naive = lambda u: get_prior_mean_naive(u, diff_op_gen)
 ## Fit GP with non-linear SPDE prior from Burgers' equation
 
 # Sample observations
-obs_noise = 1e-4
-obs_count = 20
-obs_dict = util.sample_observations(u, obs_count, obs_noise, extent=(None, None, 0, 20))
+obs_std = 1e-2
+obs_count = 100
+obs_dict = util.sample_observations(u, obs_count, obs_std, extent=(None, None, 0, 20))
 obs_idxs = np.array(list(obs_dict.keys()), dtype=int)
 print("Number of observations:", obs_idxs.shape[0])
 
 # Perform iterative optimisation
 max_iter = 50
 model = nonlinear.NonlinearSPDERegressor(u, dx, dt, diff_op_gen, prior_mean_gen, mixing_coef=0.5)
-model.fit(obs_dict, obs_noise, max_iter=max_iter, animated=True, calc_std=True)
+model.fit(obs_dict, obs_std, max_iter=max_iter, animated=True, calc_std=True)
 iter_count = len(model.mse_hist)
 
 # Check prior covariance
@@ -146,7 +146,7 @@ plt.show()
 
 # Fit with naive linearisation
 model_naive = nonlinear.NonlinearSPDERegressor(u, dx, dt, diff_op_gen_naive, prior_mean_gen_naive)
-model_naive.fit(obs_dict, obs_noise, max_iter=max_iter, animated=True, calc_std=True)
+model_naive.fit(obs_dict, obs_std, max_iter=max_iter, animated=True, calc_std=True)
 iter_count_naive = len(model_naive.mse_hist)
 
 # Plot convergence history
@@ -161,7 +161,7 @@ plt.savefig("figures/burgers_eqn/mse_conv.png", dpi=200)
 plt.show()
 
 # Fit with RBF
-# posterior_mean_rbf, posterior_std_rbf = linear.fit_rbf_gp(u, obs_dict, X_test, dx, dt, obs_noise)
+# posterior_mean_rbf, posterior_std_rbf = linear.fit_rbf_gp(u, obs_dict, X_test, dx, dt, obs_std)
 # print(metrics.mse(u, posterior_mean_rbf))
 
 # Plot results

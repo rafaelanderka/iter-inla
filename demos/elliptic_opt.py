@@ -48,9 +48,9 @@ plt.colorbar()
 plt.show()
 
 # Sample observations
-obs_noise = 1e-4
+obs_std = 1e-4
 obs_count = 20
-obs_dict = util.sample_observations(u, obs_count, obs_noise)
+obs_dict = util.sample_observations(u, obs_count, obs_std)
 obs_idxs = np.array(list(obs_dict.keys()), dtype=int)
 
 # Perform grid search of best alpha based on MSE
@@ -119,7 +119,7 @@ for i, alpha in enumerate(alphas):
     # Perform iterative optimisation
     max_iter = 20
     model = nonlinear.NonlinearSPDERegressor(u, dx, dy, diff_op_gen, prior_mean_gen)
-    model.fit(obs_dict, obs_noise, max_iter=max_iter)
+    model.fit(obs_dict, obs_std, max_iter=max_iter)
     mses[i] = model.mse
 
 # Plot results of grid search

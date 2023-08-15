@@ -21,7 +21,7 @@ class NonlinearSPDERegressor(object):
 
         # Data to fit
         self.obs_dict = None
-        self.obs_noise = None
+        self.obs_std = None
 
         # Optimiser state
         self.u0 = np.zeros_like(self.u)
@@ -63,27 +63,23 @@ class NonlinearSPDERegressor(object):
         # prior_precision = (self.sigma ** 2) / (self.dV) * LL
         prior_precision = LL
 
-        # Subtract prior mean from observations
-        obs_dict = self.obs_dict.copy()
-        for idx in obs_dict.keys():
-            obs_dict[idx] = obs_dict[idx] - self.prior_mean[idx]
-
         ## Fit corresponding GP
         # Get "data term" of posterior
         try:
-            res = linear._fit_gp(self.u - self.prior_mean, obs_dict, self.obs_noise, prior_precision, calc_std=calc_std, calc_lml=calc_lml)
+            res = linear._fit_gp(self.u, self.obs_dict, self.obs_std, self.prior_mean, prior_precision,
+                                 calc_std=calc_std, calc_lml=calc_lml)
         except CholmodNotPositiveDefiniteError:
             print("Posterior precision positive definite")
             self.preempt_requested = True
             return
 
-        self.data_term = res['posterior_mean']
+        # Store results
+        self.posterior_mean = res['posterior_mean']
+        self.posterior_mean_hist.append(self.posterior_mean.copy())
+        self.data_term = res['posterior_mean_data_term']
         self.data_term_hist.append(self.data_term.copy())
 
-        # Calculate full posterior mean as sum of prior mean and data term
-        self.posterior_mean = self.prior_mean + self.data_term
-        self.posterior_mean_hist.append(self.posterior_mean.copy())
-
+        # Perform damped update
         self.u0 = self.persistance_coef * self.u0 + self.mixing_coef * self.posterior_mean
         self.u0_hist.append(self.u0.copy())
 
@@ -93,17 +89,17 @@ class NonlinearSPDERegressor(object):
         self.rmse = np.sqrt(self.mse)
         self.rmse_hist.append(self.rmse)
 
-        # Optionally calculate std. dev. and log evidence
+        # Optionally store std. dev. and log evidence if it was computed
         if calc_std:
             self.posterior_std = res['posterior_std']
             self.posterior_std_hist.append(self.posterior_std.copy())
         if calc_lml:
             self.lml = res['log_marginal_likelihood']
 
-    def fit(self, obs_dict, obs_noise, max_iter, animated=False, calc_std=False, calc_lml=False):
+    def fit(self, obs_dict, obs_std, max_iter, animated=False, calc_std=False, calc_lml=False):
         self.preempt_requested = False
         self.obs_dict = obs_dict
-        self.obs_noise = obs_noise
+        self.obs_std = obs_std
         calc_std = calc_std or animated
 
         # Initialise figure
@@ -212,7 +208,7 @@ class NonlinearINLASPDERegressor(object):
         self.obs_dict = None
         self.obs_idxs_flat = None
         self.obs_count = 0
-        self.obs_noise = None
+        self.obs_std = None
 
         # Optimiser state
         self.u0 = np.zeros_like(self.u)
@@ -281,11 +277,11 @@ class NonlinearINLASPDERegressor(object):
         self.rmse = np.sqrt(self.mse)
         self.rmse_hist.append(self.rmse)
 
-    def fit(self, obs_dict, obs_noise, max_iter, animated=False, calc_std=False, calc_lml=False):
+    def fit(self, obs_dict, obs_std, max_iter, animated=False, calc_std=False, calc_lml=False):
         self.preempt_requested = False
         self.obs_dict = obs_dict
         self.obs_count = len(obs_dict)
-        self.obs_noise = obs_noise
+        self.obs_std = obs_std
         calc_std = calc_std or animated
 
         # Initialise figure
@@ -372,7 +368,7 @@ class NonlinearINLASPDERegressor(object):
         im_log_marg = ax_log_marg.contourf(self.log_marg_post_hist[i][1], self.log_marg_post_hist[i][0], self.log_marg_post_hist[i][2], levels=50)
         ax_log_marg.scatter(self.samples_x_hist[i][0,1], self.samples_x_hist[i][0,0], c='r', marker='x', label="MAP $\\theta$")
         # plt.scatter(t_obs_prior_mode, nu_prior_mode, c='b', marker='x', label="Prior mode $\\theta$")
-        ax_log_marg.scatter(1 / self.obs_noise, 0.1, c='m', marker='x', label="True $\\theta$")
+        ax_log_marg.scatter(1 / self.obs_std, 0.1, c='m', marker='x', label="True $\\theta$")
         ax_log_marg.scatter(self.samples_x_hist[i][:,1], self.samples_x_hist[i][:,0], s=5, c='k', label="Sampled points")
         # plt.quiver(*H_v_origins, H_v[1,:], H_v[0,:], width=0.005, scale=8, label="Eigenvectors of Hessian")
         ax_log_marg.set_xlabel('$\\tau_{obs}$')
