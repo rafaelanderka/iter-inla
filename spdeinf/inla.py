@@ -12,21 +12,22 @@ def sample_parameter_posterior(logpdf, x0, opt_method="Nelder-Mead", sampling_th
 
     # Make some convenient aliases for the log PDF of the parameter posterior
     neg_logpdf = lambda x: -logpdf(x)
-    logpdf_full = lambda x: logpdf(x, return_conditional_params=True)
+    logpdf_full = lambda x, debug=False: logpdf(x, return_conditional_params=True, debug=debug)
 
     # Find the mode of the parameter posterior
     print("Finding parameter posterior mode...")
-    opt = minimize(fun=neg_logpdf, x0=x0, method=opt_method, bounds=[(0, None), (1, None)])
+    opt = minimize(fun=neg_logpdf, x0=x0, method=opt_method, bounds=[(0, None), (0, None)])
     x_map = opt["x"]
     print(opt)
 
     # Calculate eigenvectors of Hessian at mode, to be used as sampling directions
     H = _hessian(neg_logpdf, x_map) # H is (M, M)
+    print(H)
     H_w, H_v = eigh(H) # Note H_v is (M, N)
     # H_v = -H_v # Flip just for intuition
 
     # The first sample is directly at the mode
-    p0, post_mean_x0, post_var_x0 = logpdf_full(x_map)
+    p0, post_mean_x0, post_var_x0 = logpdf_full(x_map, debug=False)
     samples_x = [x_map]
     samples_p = [p0]
     samples_mu = [post_mean_x0]
@@ -74,11 +75,11 @@ def sample_parameter_posterior(logpdf, x0, opt_method="Nelder-Mead", sampling_th
     samples_var = np.array(samples_var)
 
     # Exponentiate and normalise samples of marginal posterior
-    print(samples_p)
+    # print(samples_p)
     samples_p = np.exp(samples_p - samples_p.mean())
-    print(samples_p)
+    # print(samples_p)
     samples_p /= np.sum(samples_p)
-    print(samples_p)
+    # print(samples_p)
     return [samples_x, samples_p, samples_mu, samples_var], H_v
 
 def compute_field_posterior_stats(samples):
