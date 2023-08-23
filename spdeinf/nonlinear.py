@@ -193,17 +193,28 @@ class NonlinearSPDERegressor(object):
 
 
 class NonlinearINLASPDERegressor(object):
-    def __init__(self, u, dx, dt, diff_op_generator, prior_mean_generator, logpdf_marginal_posterior, mixing_coef=1.) -> None:
+    def __init__(self, u, dx, dt, param0, diff_op_generator, prior_mean_generator, logpdf_marginal_posterior,
+                 mixing_coef=1., params_true=None, param_bounds=None, sampling_evec_scales=None) -> None:
         self.u = u
         self.dx = dx
         self.dt = dt
         self.dV = self.dx * self.dt
+        self.param0 = param0
         self.diff_op_generator = diff_op_generator
         self.prior_mean_generator = prior_mean_generator
         self.logpdf_marginal_posterior = logpdf_marginal_posterior
         self.mixing_coef = mixing_coef
         self.persistance_coef = 1. - self.mixing_coef
+        self.params_true = params_true
+        self.param_bounds = param_bounds
+        self.sampling_evec_scales = sampling_evec_scales
         self.shape = self.u.shape
+        
+        # Determine animation type
+        if self.u.shape[0] == 1:
+            self.plot_1d = True
+        else:
+            self.plot_1d = False
 
         # Data to fit
         self.obs_dict = None
@@ -238,10 +249,10 @@ class NonlinearINLASPDERegressor(object):
 
     def update(self, calc_std=False, calc_lml=False, tol=1e-3):
         # Compute posterior marginals
-        logpdf = lambda x, return_conditional_params=False, debug=False: self.logpdf_marginal_posterior(x, self.u0, self.obs_dict, self.diff_op_generator, self.prior_mean_generator,
-                                                                                           return_conditional_params=return_conditional_params, debug=debug)
+        logpdf = lambda x, return_conditional_params=False: self.logpdf_marginal_posterior(x, self.u0, self.obs_dict, self.diff_op_generator, self.prior_mean_generator,
+                                                                                           return_conditional_params=return_conditional_params)
         try:
-            samples, H_v = inla.sample_parameter_posterior(logpdf, [0.1, 100], sampling_evec_scales=[0.2, 0.02])
+            samples, H_v = inla.sample_parameter_posterior(logpdf, self.param0, param_bounds=self.param_bounds, sampling_evec_scales=self.sampling_evec_scales)
         except CholmodNotPositiveDefiniteError:
             print("Posterior precision not positive definite")
             self.preempt_requested = True
@@ -252,15 +263,11 @@ class NonlinearINLASPDERegressor(object):
         self.samples_x_hist.append(samples[0])
 
         # Sweep marginal posterior for plotting
-        nu_max = 1
-        nu_count = 10
-        nu_min = 1 / nu_count
-        nus = np.linspace(nu_min , nu_max, nu_count)
+        nu_count = 4
+        nus = np.linspace(*self.param_bounds[0], nu_count)
 
-        t_obs_max = 11
-        t_obs_count = 11
-        t_obs_min = 1 / t_obs_count
-        t_obss = np.linspace(t_obs_min , t_obs_max, t_obs_count)
+        t_obs_count = 4
+        t_obss = np.linspace(*self.param_bounds[1], t_obs_count)
 
         log_marg_post = np.empty((nu_count, t_obs_count))
         for i, a in tqdm(enumerate(nus), total=nu_count):
@@ -317,68 +324,61 @@ class NonlinearINLASPDERegressor(object):
     def init_animation(self):
         obs_idx = np.array(list(self.obs_dict.keys()), dtype=int)
         obs_val = np.array(list(self.obs_dict.values()))
+
         gs_kw = dict(width_ratios=[1, 1, 1, 1], height_ratios=[1])
         fig, axd = plt.subplot_mosaic([['gt', 'mean', 'std',  'log_marg']], gridspec_kw=gs_kw, figsize=(13, 4))
-        im_gt = axd['gt'].plot(self.u[0])
-        im_mean = axd['mean'].plot(np.zeros_like(self.u[0]))[0]
-        im_std = axd['std'].plot(np.zeros_like(self.u[0]))[0]
-        # im_prior = axd['prior'].plot(np.zeros_like(self.u[0]))[0]
-        # im_diff = axd['diff'].imshow(np.zeros_like(self.u), animated=True, origin="lower")
-        # im_prior = axd['prior'].imshow(np.zeros_like(self.u), animated=True, origin="lower")
-        # im_data = axd['data_term'].imshow(np.zeros_like(self.u), animated=True, origin="lower")
-        axd['mean'].scatter(obs_idx[:,1], obs_val, c='r', marker='x')
-        axd['std'].scatter(obs_idx[:,1], obs_idx[:,0], c='r', marker='x')
-        # axd['diff'].scatter(obs_idx[:,1], obs_idx[:,0], c='r', marker='x')
-        # axd['prior'].scatter(obs_idx[:,1], obs_idx[:,0], c='r', marker='x')
-        # axd['data_term'].scatter(obs_idx[:,1], obs_idx[:,0], c='r', marker='x')
+        if self.plot_1d:
+            im_gt = axd['gt'].plot(self.u[0])
+            im_mean = axd['mean'].plot(np.zeros_like(self.u[0]))[0]
+            im_std = axd['std'].plot(np.zeros_like(self.u[0]))[0]
+            axd['mean'].scatter(obs_idx[:,1], obs_val, c='r', marker='x')
+            axd['std'].scatter(obs_idx[:,1], obs_idx[:,0], c='r', marker='x')
+        else:
+            im_gt = axd['gt'].imshow(self.u, animated=True, origin="lower")
+            im_mean = axd['mean'].imshow(np.zeros_like(self.u), animated=True, origin="lower")
+            im_std = axd['std'].imshow(np.zeros_like(self.u), animated=True, origin="lower")
+            axd['mean'].scatter(obs_idx[:,1], obs_idx[:,0], c='r', marker='x')
+            axd['std'].scatter(obs_idx[:,1], obs_idx[:,0], c='r', marker='x')
+            fig.colorbar(im_gt, ax=axd['gt'])
+            fig.colorbar(im_mean, ax=axd['mean'])
+            fig.colorbar(im_std, ax=axd['std'])
+
+        # Configure titles and labels
         axd['gt'].set_title('Ground truth')
         axd['mean'].set_title('Posterior mean')
         axd['std'].set_title('Posterior std.')
-        # axd['diff'].set_title('$u - \mu_{u|y}$') axd['prior'].set_title('Prior mean') axd['data_term'].set_title('Posterior mean\ndata term')
-
-        # Plot marg. parameter posterior
+        axd['log_marg'].set_title('$\\log \\widetilde{p}(\\theta | y)$')
         axd['log_marg'].set_xlabel('$c$')
         axd['log_marg'].set_ylabel('$b$')
-        axd['log_marg'].set_title('$\\log \\widetilde{p}(\\theta | y)$')
-        # axd['log_marg'].legend()
-        # fig.colorbar(im_log_marg, ax=axd['log_marg'])
 
-        # fig.colorbar(im_gt, ax=axd['gt'])
-        # fig.colorbar(im_mean, ax=axd['mean'])
-        # fig.colorbar(im_std, ax=axd['std'])
-        # fig.colorbar(im_diff, ax=axd['diff'])
-        # fig.colorbar(im_prior, ax=axd['prior'])
-        # fig.colorbar(im_data, ax=axd['data_term'])
         fig.tight_layout()
         fig.show()
         fig.canvas.mpl_connect('close_event', self.preempt)
         return fig, im_mean, im_std, axd['log_marg']
 
     def update_animation(self, i, im_mean, im_std, ax_log_marg):
-        # print(self.posterior_mean_hist[i])
-        im_mean.set_ydata(self.u0_hist[i][0])
-        # im_mean.set_ydata(self.posterior_mean_hist[i][0])
-        im_std.set_ydata(self.posterior_std_hist[i][0])
-        # im_diff.set_data(self.u - self.posterior_mean_hist[i])
-        # im_prior.set_data(self.prior_mean_hist[i])
-        # im_data.set_data(self.data_term_hist[i])
-        # im_mean.autoscale()
-        # im_std.autoscale()
-        # im_diff.autoscale()
-        # im_prior.autoscale()
-        # im_data.autoscale()
+        if self.plot_1d:
+            im_mean.set_ydata(self.u0_hist[i][0])
+            im_std.set_ydata(self.posterior_std_hist[i][0])
+            # im_mean.set_ydata(self.posterior_mean_hist[i][0])
+        else:
+            im_mean.set_data(self.u0_hist[i])
+            im_std.set_data(self.posterior_std_hist[i])
+            im_mean.autoscale()
+            im_std.autoscale()
+
         ax_log_marg.clear()
         im_log_marg = ax_log_marg.contourf(self.log_marg_post_hist[i][1], self.log_marg_post_hist[i][0], self.log_marg_post_hist[i][2], levels=50)
         ax_log_marg.scatter(self.samples_x_hist[i][0,1], self.samples_x_hist[i][0,0], c='r', marker='x', label="MAP $\\theta$")
         # plt.scatter(t_obs_prior_mode, nu_prior_mode, c='b', marker='x', label="Prior mode $\\theta$")
-        ax_log_marg.scatter(10, 0.3, c='m', marker='x', label="True $\\theta$")
+        if self.params_true is not None:
+            ax_log_marg.scatter(self.params_true[1], self.params_true[0], c='m', marker='x', label="True $\\theta$")
         ax_log_marg.scatter(self.samples_x_hist[i][:,1], self.samples_x_hist[i][:,0], s=5, c='k', label="Sampled points")
         # plt.quiver(*H_v_origins, H_v[1,:], H_v[0,:], width=0.005, scale=8, label="Eigenvectors of Hessian")
         ax_log_marg.set_xlabel('$c$')
         ax_log_marg.set_ylabel('$b$')
         ax_log_marg.set_title('$\\log \\widetilde{p}(\\theta | y)$')
         ax_log_marg.legend()
-        # fig.colorbar(im_log_marg, ax=ax_log_marg)
         return im_mean, im_std
 
     def save_animation(self, output_filename, fps=5):

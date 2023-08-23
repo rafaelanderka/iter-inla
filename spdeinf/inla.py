@@ -4,7 +4,8 @@ from scipy.linalg import eigh
 from scipy.optimize import minimize
 
 def sample_parameter_posterior(logpdf, x0, opt_method="Nelder-Mead", sampling_thresh=5,
-                               sampling_step_size=2, sampling_evec_scales=None, tol=1e-7):
+                               sampling_step_size=2, sampling_evec_scales=None, param_bounds=None, tol=1e-7):
+    print(param_bounds)
     # Process args
     if not sampling_evec_scales:
         sampling_evec_scales = len(x0) * [1]
@@ -12,11 +13,11 @@ def sample_parameter_posterior(logpdf, x0, opt_method="Nelder-Mead", sampling_th
 
     # Make some convenient aliases for the log PDF of the parameter posterior
     neg_logpdf = lambda x: -logpdf(x)
-    logpdf_full = lambda x, debug=False: logpdf(x, return_conditional_params=True, debug=debug)
+    logpdf_full = lambda x: logpdf(x, return_conditional_params=True)
 
     # Find the mode of the parameter posterior
     print("Finding parameter posterior mode...")
-    opt = minimize(fun=neg_logpdf, x0=x0, method=opt_method, bounds=[(0, None), (0, None)])
+    opt = minimize(fun=neg_logpdf, x0=x0, method=opt_method, bounds=param_bounds)
     x_map = opt["x"]
     print(opt)
 
@@ -27,7 +28,7 @@ def sample_parameter_posterior(logpdf, x0, opt_method="Nelder-Mead", sampling_th
     # H_v = -H_v # Flip just for intuition
 
     # The first sample is directly at the mode
-    p0, post_mean_x0, post_var_x0 = logpdf_full(x_map, debug=False)
+    p0, post_mean_x0, post_var_x0 = logpdf_full(x_map)
     samples_x = [x_map]
     samples_p = [p0]
     samples_mu = [post_mean_x0]
@@ -96,7 +97,7 @@ def compute_field_posterior_stats(samples):
     posterior_std_marg = np.sqrt(posterior_var_marg)
     return posterior_mean_marg, posterior_std_marg
 
-def _hessian(fun, x, epsilon=1e-3):
+def _hessian(fun, x, epsilon=1e-4):
     """
     Calculate hessian using finite differences
     """

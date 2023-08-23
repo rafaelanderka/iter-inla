@@ -15,9 +15,6 @@ N_x = xx.shape[0]
 N_t = tt.shape[0]
 dx = xx[1] - xx[0]
 dt = tt[1] - tt[0]
-plt.imshow(uu, origin="lower")
-plt.show()
-print(tt)
 
 # Define Korteweg-de Vries eq. parameters
 l1 = 1
@@ -80,9 +77,9 @@ plt.xlabel("Iteration")
 plt.ylabel("MSE")
 plt.xticks(np.arange(2, iter_count + 1, 2))
 plt.legend()
-plt.savefig("figures/allen_cahn_eqn/mse_conv.png", dpi=200)
+plt.savefig("figures/kdv/mse_conv.png", dpi=200)
 plt.show()
 
 # Save animation
 print("Saving animation...")
-model.save_animation("figures/allen_cahn_eqn/allen_cahn_eqn_iter_animation.gif", fps=5)
+model.save_animation("figures/kdv/kdv_iter_animation.gif", fps=5)
