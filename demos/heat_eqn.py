@@ -7,7 +7,7 @@ from spdeinf import linear, metrics, util, plotting
 ## Generate data from the heat equation
 
 # Define parameters of the stochastic heat equation
-alpha = 0.01
+alpha = 0.1
 W_amp = 0
 
 # Create spatial discretisation
@@ -52,29 +52,24 @@ plt.show()
 
 # Sample observations
 obs_std = 1e-2
-obs_count = 20
+obs_count = 50
 obs_dict = util.sample_observations(u, obs_count, obs_std)
 obs_idxs = np.array(list(obs_dict.keys()), dtype=int)
 
 # Fit with SPDE prior
 diff_op_guess = diff_op_t - alpha * diff_op_xx
-res = linear.fit_spde_gp(u, obs_dict, obs_std, diff_op_guess, prior_mean=0, calc_std=True, calc_lml=False)
+res = linear.fit_spde_gmrf(u, obs_dict, obs_std, diff_op_guess, prior_mean=0, calc_std=True)
 posterior_mean_pde = res['posterior_mean']
 posterior_std_pde = res['posterior_std']
 print(f'SPDE prior MSE={metrics.mse(u, posterior_mean_pde)}')
-
-# Fit with RBF prior
-posterior_mean_rbf, posterior_std_rbf = linear.fit_rbf_gp(u, obs_dict, X_test, dx, dt, obs_std)
-print(f'RBF prior MSE={metrics.mse(u, posterior_mean_rbf)}')
 
 # Plot results
 plot_kwargs = {
         'mean_vmin': u.min(),
         'mean_vmax': u.max(),
         'std_vmin': 0,
-        'std_vmax': max(posterior_std_pde.max(), posterior_std_rbf.max()),
+        'std_vmax': posterior_std_pde.max(),
         'diff_vmin': -0.3,
         'diff_vmax': 0.8,
         }
 plotting.plot_gp_2d(u, posterior_mean_pde, posterior_std_pde, obs_idxs, 'figures/heat_eqn/heat_eqn_test_pde.png', **plot_kwargs)
-plotting.plot_gp_2d(u, posterior_mean_rbf, posterior_std_rbf, obs_idxs, 'figures/heat_eqn/heat_eqn_test_rbf.png', **plot_kwargs)

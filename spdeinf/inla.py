@@ -3,9 +3,8 @@ import numpy as np
 from scipy.linalg import eigh
 from scipy.optimize import minimize
 
-def sample_parameter_posterior(logpdf, x0, opt_method="Nelder-Mead", sampling_thresh=5,
+def sample_parameter_posterior(logpdf, x0, opt_method="Nelder-Mead", sampling_threshold=5,
                                sampling_step_size=2, sampling_evec_scales=None, param_bounds=None, tol=1e-7):
-    print(param_bounds)
     # Process args
     if not sampling_evec_scales:
         sampling_evec_scales = len(x0) * [1]
@@ -23,9 +22,7 @@ def sample_parameter_posterior(logpdf, x0, opt_method="Nelder-Mead", sampling_th
 
     # Calculate eigenvectors of Hessian at mode, to be used as sampling directions
     H = _hessian(neg_logpdf, x_map) # H is (M, M)
-    print(H)
     H_w, H_v = eigh(H) # Note H_v is (M, N)
-    # H_v = -H_v # Flip just for intuition
 
     # The first sample is directly at the mode
     p0, post_mean_x0, post_var_x0 = logpdf_full(x_map)
@@ -42,7 +39,8 @@ def sample_parameter_posterior(logpdf, x0, opt_method="Nelder-Mead", sampling_th
             offset = dir
             xS = x_map + offset * sampling_step_size * sampling_evec_scales[i] * evec
             if not (xS <= 0).any():
-                while p0 - logpdf(xS) < sampling_thresh:
+                while p0 - logpdf(xS) < sampling_threshold:
+                    break
                     pS, post_mean, post_var = logpdf_full(xS)
                     samples_x.append(xS.copy())
                     samples_p.append(pS)
@@ -65,7 +63,7 @@ def sample_parameter_posterior(logpdf, x0, opt_method="Nelder-Mead", sampling_th
         if (xS <= 0).any():
             continue
         pS, post_mean, post_var = logpdf_full(xS)
-        if p0 - pS < sampling_thresh:
+        if p0 - pS < sampling_threshold:
             samples_x.append(xS)
             samples_p.append(pS)
             samples_mu.append(post_mean)
@@ -76,12 +74,9 @@ def sample_parameter_posterior(logpdf, x0, opt_method="Nelder-Mead", sampling_th
     samples_var = np.array(samples_var)
 
     # Exponentiate and normalise samples of marginal posterior
-    # print(samples_p)
     samples_p = np.exp(samples_p - samples_p.mean())
-    # print(samples_p)
     samples_p /= np.sum(samples_p)
-    # print(samples_p)
-    return [samples_x, samples_p, samples_mu, samples_var], H_v
+    return [samples_x, samples_p, samples_mu, samples_var], H_v, x_map
 
 def compute_field_posterior_stats(samples):
     # Unpack samples
@@ -97,7 +92,7 @@ def compute_field_posterior_stats(samples):
     posterior_std_marg = np.sqrt(posterior_var_marg)
     return posterior_mean_marg, posterior_std_marg
 
-def _hessian(fun, x, epsilon=1e-4):
+def _hessian(fun, x, epsilon=1e-5):
     """
     Calculate hessian using finite differences
     """

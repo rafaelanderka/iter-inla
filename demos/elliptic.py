@@ -23,24 +23,24 @@ def f(x, y):
 # Define the differential operators
 laplacian = FinDiff(0, dx, 2) + FinDiff(1, dy, 2)
 
-def equation(u):
+def elliptic(u):
     u = u.reshape((N, N))
-    
+
     result = alpha * np.cos(u) - laplacian(u) - f(X, Y)
-    
+
     # Propagate boundary conditions
     result[0, :] = u[0, :]
     result[-1, :] = u[-1, :]
     result[:, 0] = u[:, 0]
     result[:, -1] = u[:, -1]
-    
+
     return result.ravel()
 
 # Initial guess
 u0 = np.zeros((N, N))
 
 # Solve the system
-u = fsolve(equation, u0.ravel()).reshape((N, N))
+u = fsolve(elliptic, u0.ravel()).reshape((N, N))
 
 # Plot ground truth solution
 plt.imshow(u, origin="lower")

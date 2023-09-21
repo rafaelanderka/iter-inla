@@ -11,19 +11,24 @@ from spdeinf import linear, nonlinear, util
 # Define true parameters of the Korteweg-de Vries eqn.
 l1 = 1
 l2 = 0.0025
-params_true = np.array([l1, l2])
+obs_std = 1e-3
+params_true = np.array([l1, l2, 1 / obs_std])
+print("True parameters:", params_true)
 
 # Define parameters of the parameter priors
-tau_l1 = 10
-l1_0 = 0
-l1_prior_mode = np.exp(l1_0 - tau_l1 ** (-2))
+tau_l1 = 0.1
+l1_prior_mode = 1.0
+l1_0 = np.log(l1_prior_mode) + (tau_l1 ** (-2))
 
-tau_l2 = 10
-l2_0 = -6
-l2_prior_mode = np.exp(l2_0 - tau_l2 ** (-2))
+tau_l2 = 0.1
+l2_prior_mode = 0.0025
+l2_0 = np.log(l2_prior_mode) + (tau_l2 ** (-2))
 
-params0 = np.array([l1_prior_mode, l2_prior_mode])
-param_bounds = [(0.1, 2), (0.001, 0.01)]
+tau_t_obs = 0.1
+t_obs_prior_mode = 10
+t_obs_0 = np.log(t_obs_prior_mode) + (tau_t_obs ** (-2))
+params0 = np.array([l1_prior_mode, l2_prior_mode, t_obs_prior_mode])
+param_bounds = [(0.5, 1.5), (0.001, 0.005), (5, 50)]
 
 # Load Korteweg-de Vries eq. data from PINNs examples
 data = loadmat("data/PINNs/KdV.mat")
@@ -36,11 +41,10 @@ dx = xx[1] - xx[0]
 dt = tt[1] - tt[0]
 
 # Sample observations
-obs_std = 1e-3
 obs_count_1 = 50
 obs_count_2 = 50
 obs_loc_1 = np.where(tt == 0.2)[0][0]
-obs_loc_2 = np.where(tt == 0.8)[0][0]
+obs_loc_2 = np.where(tt == 0.8)[0][0] + 1
 obs_dict = util.sample_observations(uu, obs_count_1, obs_std, extent=(None, None, obs_loc_1, obs_loc_1+1))
 obs_dict.update(util.sample_observations(uu, obs_count_2, obs_std, extent=(None, None, obs_loc_2, obs_loc_2+1)))
 obs_idxs = np.array(list(obs_dict.keys()), dtype=int)
@@ -54,10 +58,10 @@ def get_diff_op(u0, dx, dt, params):
     """
     Constructs current linearised differential operator.
     """
-    l1, l2 = params
+    l1, l2, _ = params
     partial_t = FinDiff(1, dt, 1, acc=2)
-    partial_x = FinDiff(0, dx, 1, acc=2)
-    partial_xxx = FinDiff(0, dx, 3, acc=2)
+    partial_x = FinDiff(0, dx, 1, acc=2, periodic=True)
+    partial_xxx = FinDiff(0, dx, 3, acc=2, periodic=True)
     u0_x = partial_x(u0)
     diff_op = partial_t + Coef(l1 * u0) * partial_x + Coef(l1 * u0_x) * Identity() + Coef(l2) * partial_xxx
     return diff_op
@@ -66,8 +70,8 @@ def get_prior_mean(u0, diff_op_gen, params):
     """
     Calculates current prior mean.
     """
-    l1, _ = params
-    partial_x = FinDiff(0, dx, 1, acc=2)
+    l1, _, _ = params
+    partial_x = FinDiff(0, dx, 1, acc=2, periodic=True)
     u0_x = partial_x(u0)
     diff_op = diff_op_gen(u0, params)
     diff_op_mat = diff_op.matrix(u0.shape)
@@ -81,11 +85,11 @@ prior_mean_gen = lambda u, params: get_prior_mean(u, diff_op_gen, params)
 # log-pdf of parameter posterior #
 ##################################
 
-def _logpdf_marginal_posterior(l1, l2, Q_u, Q_uy, Q_obs, mu_u, mu_uy, obs_dict, shape, regularisation=1e-3):
+def _logpdf_marginal_posterior(l1, l2, t_obs, Q_u, Q_uy, Q_obs, mu_u, mu_uy, obs_dict, shape, regularisation=1e-3):
     # Unpack parameters
     obs_idxs = np.array(list(obs_dict.keys()), dtype=int)
     obs_idxs_flat = shape[1] * obs_idxs[:,0] + obs_idxs[:,1]
-    obs_vals = np.array(list(obs_dict.values()))
+    obs_vals = np.array(list(obs_dict.values()), dtype=float)
 
     # Define reused consts.
     log_2pi = np.log(2 * np.pi)
@@ -114,6 +118,13 @@ def _logpdf_marginal_posterior(l1, l2, Q_u, Q_uy, Q_obs, mu_u, mu_uy, obs_dict, 
     else:
         log_p_l2 = float("-inf")
 
+    # Compute t_obs prior terms
+    if t_obs > 0:
+        log_t_obs = np.log(t_obs)
+        log_p_t_obs = np.log(tau_t_obs) - log_t_obs - 0.5 * ((tau_t_obs * (log_t_obs - t_obs_0)) ** 2 + log_2pi) # log-normal prior
+    else:
+        log_p_t_obs = float("-inf")
+
     # Compute GMRF prior terms
     diff_mu_uy_mu_u = mu_uy - mu_u
     log_p_ut = 0.5 * (Q_u_logdet - diff_mu_uy_mu_u.T @ Q_u @ diff_mu_uy_mu_u - M * log_2pi)
@@ -125,12 +136,13 @@ def _logpdf_marginal_posterior(l1, l2, Q_u, Q_uy, Q_obs, mu_u, mu_uy, obs_dict, 
     # Compute full conditional terms
     log_p_uyt = 0.5 * (Q_uy_logdet - M * log_2pi)
 
-    logpdf = log_p_l1 + log_p_l2 + log_p_ut + log_p_yut - log_p_uyt
+    logpdf = log_p_l1 + log_p_l2 + log_p_t_obs + log_p_ut + log_p_yut - log_p_uyt
     return logpdf
 
 def logpdf_marginal_posterior(x, u0, obs_dict, diff_op_gen, prior_mean_gen, return_conditional_params=False, debug=False):
     # Process args
     obs_count = len(obs_dict.keys())
+    t_obs = x[2]
 
     # Compute prior mean
     prior_mean = prior_mean_gen(u0, x)
@@ -138,24 +150,18 @@ def logpdf_marginal_posterior(x, u0, obs_dict, diff_op_gen, prior_mean_gen, retu
     # Construct precision matrix corresponding to the linear differential operator
     diff_op_guess = diff_op_gen(u0, x)
     L = util.operator_to_matrix(diff_op_guess, u0.shape, interior_only=False)
-    LL = L.T @ L
-    # LL_chol = cholesky(LL + tol * identity(LL.shape[0]))
-    # kappa = LL_chol.spinv().diagonal().mean()
-    # prior_precision = (self.sigma ** 2) / (self.dV * kappa) * LL
-    # prior_precision = (self.sigma ** 2) / (self.dV) * LL
-    prior_precision = LL
+    prior_precision = L.T @ L
 
     # Get "data term" of full conditional
-    res = linear._fit_gp(uu, obs_dict, obs_std, prior_mean, prior_precision, calc_std=return_conditional_params, calc_lml=False,
+    res = linear._fit_gmrf(uu, obs_dict, 1 / t_obs, prior_mean, prior_precision, calc_std=return_conditional_params,
                          include_initial_cond=False, return_posterior_precision=True, regularisation=1e-5)
 
     # Define prior and full condtional params
     mu_u = prior_mean
     Q_u = prior_precision
     mu_uy = res['posterior_mean']
-    # mu_uy = u # For testing
     Q_uy = res['posterior_precision']
-    Q_obs = sparse.diags([obs_std ** (-2)], 0, shape=(obs_count, obs_count), format='csc')
+    Q_obs = sparse.diags([t_obs ** 2], 0, shape=(obs_count, obs_count), format='csc')
 
     if debug:
         plt.figure()
@@ -163,7 +169,7 @@ def logpdf_marginal_posterior(x, u0, obs_dict, diff_op_gen, prior_mean_gen, retu
         plt.show()
 
     # Compute marginal posterior
-    logpdf = _logpdf_marginal_posterior(x[0], x[1], Q_u, Q_uy, Q_obs, mu_u.flatten(), mu_uy.flatten(), obs_dict, u0.shape)
+    logpdf = _logpdf_marginal_posterior(x[0], x[1], x[2], Q_u, Q_uy, Q_obs, mu_u.flatten(), mu_uy.flatten(), obs_dict, u0.shape)
     if return_conditional_params:
         return logpdf, mu_uy, res['posterior_var']
     return logpdf
@@ -174,14 +180,14 @@ def logpdf_marginal_posterior(x, u0, obs_dict, diff_op_gen, prior_mean_gen, retu
 # Perform iterative optimisation
 max_iter = 14
 model = nonlinear.NonlinearINLASPDERegressor(uu, dx, dt, params0, diff_op_gen, prior_mean_gen, logpdf_marginal_posterior,
-                                             mixing_coef=0.5, param_bounds=param_bounds, sampling_evec_scales=[0.0001, 0.0001],
-                                             params_true=params_true)
-model.fit(obs_dict, obs_std, max_iter=max_iter, animated=True, calc_std=True)
+                                             mixing_coef=0.5, param_bounds=param_bounds, sampling_evec_scales=[0.001, 0.001, 0.01],
+                                             sampling_threshold=3, params_true=params_true)
+model.fit(obs_dict, obs_std, max_iter=max_iter, animated=True, calc_std=True, calc_mnll=True)
 iter_count = len(model.mse_hist)
 
 # Save animation
 print("Saving animation...")
-model.save_animation("figures/kdv/kdv_inla_iter_animation.gif", fps=3)
+model.save_animation("figures/kdv/kdv_inla_2_iter_animation.gif", fps=3)
 plt.show()
 
 # Plot convergence history
@@ -192,5 +198,5 @@ plt.xlabel("Iteration")
 plt.ylabel("MSE")
 plt.xticks(np.arange(2, iter_count + 1, 2))
 plt.legend()
-plt.savefig("figures/kdv/mse_conv.png", dpi=200)
+plt.savefig("figures/kdv/mse_conv_inla_2.png", dpi=200)
 plt.show()

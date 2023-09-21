@@ -29,7 +29,7 @@ def get_diff_op(u0, dx, dt, alpha, beta):
     Constructs current linearised differential operator.
     """
     partial_t = FinDiff(1, dt, 1, acc=2)
-    partial_xx = FinDiff(0, dx, 2, acc=2)
+    partial_xx = FinDiff(0, dx, 2, acc=2, periodic=True)
     u0_sq = u0 ** 2
     diff_op = partial_t - Coef(alpha) * partial_xx + Coef(3 * beta * u0_sq) * Identity() - Coef(beta) * Identity()
     return diff_op
@@ -57,7 +57,7 @@ def get_diff_op_naive(u0, dx, dt, alpha):
     Constructs current linearised differential operator.
     """
     partial_t = FinDiff(1, dt, 1)
-    partial_xx = FinDiff(0, dx, 2)
+    partial_xx = FinDiff(0, dx, 2, periodic=True)
     diff_op = partial_t - Coef(alpha) * partial_xx
     return diff_op
 
@@ -83,12 +83,11 @@ print("Number of observations:", obs_idxs.shape[0])
 # Perform iterative optimisation
 max_iter = 50
 model = nonlinear.NonlinearSPDERegressor(uu, dx, dt, diff_op_gen, prior_mean_gen, mixing_coef=0.5)
-model.fit(obs_dict, obs_std, max_iter=max_iter, animated=True, calc_std=True)
+model.fit(obs_dict, obs_std, max_iter=max_iter, animated=True, calc_std=True, calc_mnll=True)
 iter_count = len(model.mse_hist)
 
 # Plot convergence history
 plt.plot(np.arange(1, iter_count + 1), model.mse_hist, label="Linearisation via expansion")
-# plt.plot(np.arange(1, iter_count + 1), model_naive.mse_hist, label="Naive linearisation")
 plt.yscale('log')
 plt.xlabel("Iteration")
 plt.ylabel("MSE")

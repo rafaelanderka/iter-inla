@@ -7,12 +7,12 @@ np.set_printoptions(linewidth=None)
 
 # Test Heat Eqn Op
 shape = (6, 6)
-alpha = 0.05
+alpha = 1
 dt = 0.1
 dx = 0.1
 
-diff_t = FinDiff(0, dt, 1)
-diff_x = FinDiff(1, dx, 2)
+diff_x = FinDiff(0, dx, 1, periodic=True)
+diff_t = FinDiff(1, dt, 2, periodic=True)
 
 diff_op = diff_t - alpha * diff_x
 diff_mat_findiff = diff_op.matrix(shape).todense()

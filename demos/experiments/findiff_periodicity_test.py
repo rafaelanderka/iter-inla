@@ -4,7 +4,7 @@ from findiff import FinDiff
 
 shape = (10, 10)
 u = np.zeros(shape)
-u[-1,:] = 1
+u[3,:] = 1
 
 plt.imshow(u, origin="lower")
 plt.show()
