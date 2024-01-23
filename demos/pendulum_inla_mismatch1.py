@@ -3,6 +3,8 @@ import matplotlib.pyplot as plt
 from scipy import sparse
 from scipy.sparse.linalg import spsolve
 from scipy.integrate import odeint
+from sklearn.gaussian_process import GaussianProcessRegressor
+from sklearn.gaussian_process.kernels import RBF
 from sksparse.cholmod import cholesky
 from findiff import FinDiff, Coef, Identity
 
@@ -35,7 +37,7 @@ L_t = 25                      # Duration of simulation [s]
 dt = 0.05                     # Infinitesimal time
 N_t = int(L_t / dt) + 1       # Points number of the temporal mesh
 T = np.linspace(0, L_t, N_t)  # Temporal array
-T = np.around(T, decimals=1)
+T = np.around(T, decimals=2)
 
 # Define the initial condition    
 u0 = [0.75 * np.pi, 0.]
@@ -51,6 +53,23 @@ u = odeint(pend, u0, T, args=(b, c,))
 
 # For our purposes we only need the solution for the pendulum angle, theta
 u = u[:, 0].reshape(1, -1)
+
+## Generate GP noise
+# Define the Gaussian Process with RBF kernel
+gp_noise_level = 0.5
+kernel = 1.0 * RBF(length_scale=1)
+gp = GaussianProcessRegressor(kernel=kernel, optimizer=None)
+y_gp = gp.sample_y(T.reshape(-1,1), 1).squeeze()
+
+# Add noise to simulation
+u = u + gp_noise_level * y_gp
+
+# Plot the function, the prediction and the 95% confidence interval based on the MSE
+fig, ax = plt.subplots(1, 1, figsize=(5,3))
+ax.plot(T, y_gp, 'k', lw=1)
+ax.set_xlabel("x")
+ax.set_ylabel("f(x)")
+plt.show()
 
 # Sample observations
 obs_std = 1e-1

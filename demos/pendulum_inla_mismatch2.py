@@ -1,14 +1,20 @@
+import pickle
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy import sparse
 from scipy.sparse.linalg import spsolve
 from scipy.integrate import odeint
+from scipy.interpolate import interp1d
+from sklearn.gaussian_process import GaussianProcessRegressor
+from sklearn.gaussian_process.kernels import RBF, Matern, WhiteKernel
 from sksparse.cholmod import cholesky
 from findiff import FinDiff, Coef, Identity
 
 from spdeinf import linear, nonlinear, util
 
 ## Generate data from nonlinear damped pendulum eqn.
+seed = 42
+np.random.seed(seed)
 
 # Define parameters of damped pendulum
 b = 0.3
@@ -24,42 +30,87 @@ c_prior_mode = 2.
 c_0 = np.log(c_prior_mode) + (tau_c ** (-2))
 print(b_prior_mode, c_prior_mode)
 # param0 = np.array([b_prior_mode, c_prior_mode, 1, 1e-1])
+param0 = np.array([b_prior_mode, c_prior_mode, 1])
+# param0 = np.array([b_prior_mode, 1])
 # param0 = np.array([b_prior_mode, c_prior_mode])
-param0 = np.array([b_prior_mode, 1])
 # param_bounds = [(0.1, 1), (0.1, 15), (1, 50), (1e-4, 1)]
 # param_bounds = [(0.1, 1), (0.1, 15)]
-param_bounds = [(0.1, 1), (1, 10)]
+# param_bounds = [(0.1, 1), (1, 10)]
+param_bounds = [(0.1, 1), (0.1, 15), (0.1, 10)]
 
 # Create temporal discretisation
-L_t = 25                      # Duration of simulation [s]
+L_t = 35                      # Duration of simulation [s]
 dt = 0.05                     # Infinitesimal time
 N_t = int(L_t / dt) + 1       # Points number of the temporal mesh
 T = np.linspace(0, L_t, N_t)  # Temporal array
-T = np.around(T, decimals=1)
+T = np.around(T, decimals=2)
 
 # Define the initial condition    
 u0 = [0.75 * np.pi, 0.]
 
+## Generate GP noise
+# Define the Gaussian Process with RBF kernel
+gp_noise_level = 0.25
+# kernel = 1.0 * RBF(length_scale=1)
+kernel = 1.0 * Matern(nu=1.5)
+gp = GaussianProcessRegressor(kernel=kernel, optimizer=None)
+y_gp = gp.sample_y(T.reshape(-1,1), random_state=seed)[:,-1].squeeze()
+f_gp = interp1d(T, y_gp, kind="linear", fill_value="extrapolate")
+
 # Define corresponding system of ODEs
 def pend(u, t, b, c):
     theta, omega = u
-    dydt = [omega, -b*omega - c*np.sin(theta)]
+    # dydt = [omega, -b*omega - c*np.sin(theta)]
+    dydt = [omega, -b*omega - c*np.sin(theta) + gp_noise_level*f_gp(t)]
     return dydt
 
 # Solve system of ODEs
-u = odeint(pend, u0, T, args=(b, c,))
+u_full = odeint(pend, u0, T, args=(b, c,))
 
 # For our purposes we only need the solution for the pendulum angle, theta
-u = u[:, 0].reshape(1, -1)
+u = u_full[:, 0].reshape(1, -1)
+
+# Plot the function
+fig, ax = plt.subplots(1, 1, figsize=(5,3))
+ax.plot(T, y_gp, 'k', lw=1)
+ax.plot(T, u.squeeze(), 'r', lw=1)
+ax.set_xlabel("x")
+ax.set_ylabel("f(x)")
+plt.show()
 
 # Sample observations
-obs_std = 1e-1
-obs_count = 20
-obs_loc_1 = np.where(T == 5.)[0][0]
+obs_std = 1e-2
+obs_count = 40
+obs_loc_1 = np.where(T == 15.)[0][0]
 obs_dict = util.sample_observations(u, obs_count, obs_std, extent=(None, None, 0, obs_loc_1))
 obs_idxs = np.array(list(obs_dict.keys()), dtype=int)
-obs_vals = np.array(list(obs_dict.values()))
+obs_vals = np.array(list(obs_dict.values()), dtype=float)
+obs_locs = np.array([[0, T[j]] for i, j in obs_idxs])
 print("Number of observations:", obs_idxs.shape[0])
+
+# Generate background
+gp_kernel = 1.0 * RBF(length_scale=1.0) + WhiteKernel(noise_level=obs_std**2, noise_level_bounds="fixed")
+gp = GaussianProcessRegressor(kernel=gp_kernel, n_restarts_optimizer=10)
+gp.fit(obs_locs, obs_vals)
+test_locs_t0 = [[0, 0], [0, dt]]
+ic_mean, ic_cov = gp.predict(test_locs_t0, return_cov=True)
+ic_std = np.sqrt(np.diag(ic_cov))
+
+# Save data for AutoIP
+obs_table = np.empty((obs_count, 2))
+obs_table = [[T[k[1]], v] for k, v in obs_dict.items()]
+util.obs_to_csv(obs_table, header=["t", "theta"], filename=f"data/PendulumTrainMismatch.csv")
+
+u_table = np.empty((N_t, 2))
+u_table[:,0] = T.flatten()
+u_table[:,1] = u.flatten()
+util.obs_to_csv(u_table, header=["t", "theta"], filename=f"data/PendulumTestMismatch.csv")
+
+# Save data for other benchmarks
+data_dict = {'uu': u, 'uu_full': u_full, 'tt': T, 'dt': dt, 'u0_mean': ic_mean, 'u0_cov': ic_cov, 'u0_std': ic_std, 'obs_dict': obs_dict, 'obs_std': obs_std}
+data_file = f"data/pendulum_mismatch.pkl"
+with open(data_file, 'wb') as f:
+    pickle.dump(data_dict, f, protocol=pickle.HIGHEST_PROTOCOL)
 
 ################################
 # Diff. op. and mean generator #
@@ -70,8 +121,9 @@ def get_diff_op(u0, dt, params):
     Constructs current linearised differential operator.
     """
     # b, c, _, _ = params
+    b, c, _ = params
     # b, c = params
-    b, _ = params
+    # b, _ = params
     partial_t = FinDiff(1, dt, 1)
     partial_tt = FinDiff(1, dt, 2)
     u0_cos = np.cos(u0)
@@ -83,8 +135,9 @@ def get_prior_mean(u0, diff_op_gen, params):
     Calculates current prior mean.
     """
     # b, c, _, _ = params
+    b, c, _ = params
     # b, c = params
-    b, _ = params
+    # b, _ = params
     u0_cos = np.cos(u0)
     u0_sin = np.sin(u0)
     diff_op = diff_op_gen(u0, params)
@@ -156,8 +209,8 @@ def logpdf_marginal_posterior(x, u0, obs_dict, diff_op_gen, prior_mean_gen, retu
     # Construct precision matrix corresponding to the linear differential operator
     diff_op_guess = diff_op_gen(u0, x)
     L = util.operator_to_matrix(diff_op_guess, u0.shape, interior_only=False)
-    # prior_precision = x[2] * (L.T @ L)
-    prior_precision = x[1] * (L.T @ L)
+    prior_precision = x[2] * (L.T @ L)
+    # prior_precision = x[1] * (L.T @ L)
     # prior_precision = L.T @ L
 
     # Get "data term" of full conditional
@@ -189,7 +242,7 @@ def logpdf_marginal_posterior(x, u0, obs_dict, diff_op_gen, prior_mean_gen, retu
 # Perform iterative optimisation
 max_iter = 10
 model = nonlinear.NonlinearINLASPDERegressor(u, 1, dt, param0, diff_op_gen, prior_mean_gen, logpdf_marginal_posterior,
-                                             mixing_coef=0.5, param_bounds=param_bounds, sampling_evec_scales=[0.1, 0.05],
+                                             mixing_coef=0.5, param_bounds=param_bounds, sampling_evec_scales=[0.1, 0.1, 0.05],
                                              sampling_threshold=1)
 # model = nonlinear.NonlinearINLASPDERegressor(u, 1, dt, param0, diff_op_gen, prior_mean_gen, logpdf_marginal_posterior,
 #                                              mixing_coef=0.5, param_bounds=param_bounds, sampling_evec_scales=[0.1, 0.05, 0.1, 0.1],
