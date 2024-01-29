@@ -9,8 +9,9 @@ setup(
     author_email='rafael.anderka.22@ucl.ac.uk',
     license='BSD 2-clause',
     packages=['spdeinf'],
-    install_requires=['findiff @ git+ssh://git@github.com:rafaelanderka/findiff.git',
-                      'scikit-sparse @ git+ssh://git@github.com:rafaelanderka/scikit-sparse.git',',
+    install_requires=[
+                    #   'findiff @ git+ssh://git@github.com:rafaelanderka/findiff.git',
+                    #   'scikit-sparse @ git+ssh://git@github.com:rafaelanderka/scikit-sparse.git',
                       'scikit-learn',
                       'scipy',
                       'numpy',
