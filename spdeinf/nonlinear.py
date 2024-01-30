@@ -418,10 +418,11 @@ class NonlinearINLASPDERegressor(object):
 
 class AbstractNonlinearINLASPDERegressor(ABC):
     def __init__(self, u, dx, dt,
-                 param0, # Used as initial guess for optimising the log marginal likelihood
-                 param_priors: List[distributions.Distribution] = None, # Priors on the parameters, specified as scipy.stats object
-                 param_bounds=None, # Bounds on priors when minimising
-                 params_true=None, # Used for animating
+                 param0,
+                 param_priors: List[distributions.Distribution] = None,
+                 param_bounds=None,
+                 params_true=None,
+                 learn_obs_noise=False,
                  mixing_coef=1.,
                  sampling_evec_scales=None,
                  sampling_threshold=None) -> None:
@@ -453,6 +454,7 @@ class AbstractNonlinearINLASPDERegressor(ABC):
         """
         assert len(param0) == len(param_priors), "param0 and param_priors must have the same length"
         assert len(param0) == len(param_bounds), "param0 and param_bounds must have the same length"
+        assert len(param0) == len(sampling_evec_scales), "param0 and sampling_evec_scales must have the same length"
 
         self.u = u
         self.dx = dx
@@ -530,7 +532,7 @@ class AbstractNonlinearINLASPDERegressor(ABC):
         """
         Get the observation noise (standard deviation).
         """
-        return NotImplementedError
+        return self.obs_std # By default, return self.obs_std if observation noise is fixed. Customise if learned.
 
     def _log_param_prior(self, params):
         """
@@ -721,8 +723,8 @@ class AbstractNonlinearINLASPDERegressor(ABC):
         ----------
         obs_dict: dict
             Dictionary of observations.
-        obs_std: float
-            Standard deviaion of noise (is this necessary?)
+        obs_std: float or None
+            Standard deviation of noise if available.
         max_iter: int
             Maximum number of iterations
         parameterisation: 'moment' or 'natural'

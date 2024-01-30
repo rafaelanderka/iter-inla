@@ -19,25 +19,29 @@ b = 0.3
 c = 1.
 params_true = np.array([b, c])
 
-# Define parameters of the parameter priors
+# Define parameters of the model parameter priors
 tau_b = 1
 b_prior_mode = 0.2
 b_0 = np.log(b_prior_mode) + (tau_b ** (-2))
+
 tau_c = 1
 c_prior_mode = 2.
 c_0 = np.log(c_prior_mode) + (tau_c ** (-2))
-print(b_prior_mode, c_prior_mode)
-# param0 = np.array([b_prior_mode, c_prior_mode, 1, 1e-1])
-# param0 = np.array([b_prior_mode, c_prior_mode])
-# param_bounds = [(0.1, 1), (0.1, 15), (1, 50), (1e-4, 1)]
-# param_bounds = [(0.1, 1), (0.1, 15)]
+
+# Process noise prior
 tau_k = 1
-k_prior_mode = 1.
+k_prior_mode = 0.05
 k_0 = np.log(k_prior_mode) + (tau_k ** (-2))
 
-param0 = np.array([b_prior_mode, 1])
-param_priors = [LogNormal(mu=b_0, sigma=1/tau_b), LogNormal(mu=k_0, sigma=1/tau_k)]
-param_bounds = [(0.1, 1), (1, 10)]
+# Observation noise prior
+tau_s = 1
+s_prior_mode = 0.2
+s_0 = np.log(s_prior_mode) + (tau_s ** (-2))
+
+param0 = np.array([b_prior_mode, c_prior_mode, k_prior_mode, s_prior_mode])
+param_priors = [LogNormal(mu=b_0, sigma=1/tau_b), LogNormal(mu=c_0, sigma=1/tau_c),
+                LogNormal(mu=k_0, sigma=1/tau_k), LogNormal(mu=s_0, sigma=1/tau_s)]
+param_bounds = [(0.1, 1), (0.1, 5), (0, 1), (0, 1)]
 
 # Create temporal discretisation
 L_t = 25                      # Duration of simulation [s]
@@ -76,13 +80,19 @@ print("Number of observations:", obs_idxs.shape[0])
 #############################################
 
 class NonlinearPendulumINLARegressor(AbstractNonlinearINLASPDERegressor):
-    def param_names(self):
-        return ['b', 'k_inv']
+    """
+    The parameters of the model are, in order:
+    0. b
+    1. c
+    2. process amplitude
+    3. observation noise
+    """
 
     def _get_diff_op(self, u0, params, **kwargs):
-        # b, c, _, _ = params
-        # b, c = params
-        b, _ = params
+        """
+        Construct current linearised differential operator.
+        """
+        b, c, _, _ = params
         partial_t = FinDiff(1, self.dt, 1)
         partial_tt = FinDiff(1, self.dt, 2)
         u0_cos = np.cos(u0)
@@ -90,15 +100,19 @@ class NonlinearPendulumINLARegressor(AbstractNonlinearINLASPDERegressor):
         return diff_op
 
     def _get_prior_precision(self, u0, params, **kwargs):
+        """
+        Calculate current prior precision.
+        """
         diff_op_guess = self._get_diff_op(u0, params)
         L = util.operator_to_matrix(diff_op_guess, u0.shape, interior_only=False)
-        prior_precision = params[1] * (L.T @ L)
+        prior_precision = (self.dt / params[2]**2) * (L.T @ L)
         return prior_precision
 
     def _get_prior_mean(self, u0, params, **kwargs):
-        # b, c, _, _ = params
-        # b, c = params
-        b, _ = params
+        """
+        Calculate current prior mean.
+        """
+        b, c, _, _ = params
         u0_cos = np.cos(u0)
         u0_sin = np.sin(u0)
         diff_op = self._get_diff_op(u0, params)
@@ -107,7 +121,11 @@ class NonlinearPendulumINLARegressor(AbstractNonlinearINLASPDERegressor):
         return prior_mean.reshape(u0.shape)
 
     def _get_obs_noise(self, params, **kwargs):
-        return obs_std
+        """
+        Get observation noise (standard deviation).
+        """
+        # return self.obs_std
+        return params[3]
 
     
 ############################################
@@ -119,7 +137,7 @@ model = NonlinearPendulumINLARegressor(u, 1, dt, param0,
                                        mixing_coef=0.5,
                                        param_bounds=param_bounds,
                                        param_priors=param_priors,
-                                       sampling_evec_scales=[0.1, 0.05],
+                                       sampling_evec_scales=[0.1, 0.1, 0.1, 0.02],
                                        sampling_threshold=1)
 
 model.fit(obs_dict, obs_std, max_iter=max_iter, parameterisation=parameterisation, animated=True, calc_std=True, calc_mnll=True)
@@ -145,7 +163,6 @@ plt.show()
 # Save animation
 print("Saving animation...")
 model.save_animation("figures/pendulum/pendulum_inla_new_iter_animation.gif", fps=3)
-
 
 
 
