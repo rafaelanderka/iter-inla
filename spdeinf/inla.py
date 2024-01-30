@@ -90,7 +90,7 @@ def sample_parameter_posterior(logpdf, x0, opt_method="Nelder-Mead", sampling_th
     return [samples_x, samples_p, samples_param_1, samples_param_2], H_v, x_map
 
 
-def compute_field_posterior_stats(samples, parameterisation='natural', calc_std=False):
+def compute_field_posterior_stats(samples, parameterisation='moment', calc_std=True):
     """
     param_1 = mean or shift
     param_2 = vars or precision
