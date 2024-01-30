@@ -114,6 +114,7 @@ class NonlinearPendulumINLARegressor(AbstractNonlinearINLASPDERegressor):
 # Fit Nonlinear Pendulum Regressor on data #
 ############################################
 max_iter = 10
+parameterisation = 'natural' # 'moment' or 'natural'
 model = NonlinearPendulumINLARegressor(u, 1, dt, param0,
                                        mixing_coef=0.5,
                                        param_bounds=param_bounds,
@@ -121,7 +122,7 @@ model = NonlinearPendulumINLARegressor(u, 1, dt, param0,
                                        sampling_evec_scales=[0.1, 0.05],
                                        sampling_threshold=1)
 
-model.fit(obs_dict, obs_std, max_iter=max_iter, parameterisation='natural', animated=True, calc_std=True, calc_mnll=True)
+model.fit(obs_dict, obs_std, max_iter=max_iter, parameterisation=parameterisation, animated=True, calc_std=True, calc_mnll=True)
 iter_count = len(model.mse_hist)
 
 

@@ -198,8 +198,8 @@ class NonlinearINLASPDERegressor(object):
         self.dt = dt
         self.dV = self.dx * self.dt
         self.param0 = param0
-        self.plot_param_post = False
-        # self.plot_param_post = param0.shape[0] == 2
+        # self.plot_param_post = False
+        self.plot_param_post = param0.shape[0] == 2
         self.diff_op_generator = diff_op_generator
         self.prior_mean_generator = prior_mean_generator
         self.logpdf_marginal_posterior = logpdf_marginal_posterior
@@ -426,13 +426,29 @@ class AbstractNonlinearINLASPDERegressor(ABC):
                  sampling_evec_scales=None,
                  sampling_threshold=None) -> None:
         """
-        Parent class for Nonlinear INLA-SPDE Regressor.
-        When subclassing, override the following methods:
+        Parent class for a Nonlinear INLA-SPDE Regressor.
+        When subclassing, remember to override the following methods:
 
         1. _get_diff_op()
         2. _get_prior_mean()
         3. _get_prior_precision()
         4. _get_obs_noise()
+
+        Parameters
+        ----------
+        param0: array
+            Initial guess of the parameters to optimise the log marginal likelihood
+        param_priors: list of Distribution
+            Prior distributions imposed on the parameters specified in param0
+        param_bounds: list
+            Bounds on the parameters when optimising
+        params_true: bool
+
+        mixing_coef: float
+            Amount of damping to be applied
+        sampling_evec_scales:
+
+        sampling_threshold:
 
         """
         assert len(param0) == len(param_priors), "param0 and param_priors must have the same length"
@@ -444,7 +460,8 @@ class AbstractNonlinearINLASPDERegressor(ABC):
         self.dV = self.dx * self.dt
         self.param0 = param0
         self.param_priors = param_priors
-        self.plot_param_post = False
+        # self.plot_param_post = False
+        self.plot_param_post = param0.shape[0] == 2
         self.mixing_coef = mixing_coef
         self.persistance_coef = 1. - self.mixing_coef
         self.params_true = params_true
@@ -511,13 +528,13 @@ class AbstractNonlinearINLASPDERegressor(ABC):
     @abstractmethod
     def _get_obs_noise(self, params, **kwargs):
         """
-        Get the observation noise (standard deviation)
+        Get the observation noise (standard deviation).
         """
         return NotImplementedError
 
     def _log_param_prior(self, params):
         """
-        Compute the log prior on the parameters Σ_i log(p(θ_i))
+        Compute the log prior on the parameters Σ_i log(p(θ_i)).
         """
         log_p_t = 0.0
         for p, prior_dist in zip(params, self.param_priors):
@@ -526,7 +543,7 @@ class AbstractNonlinearINLASPDERegressor(ABC):
 
     def _log_state_prior(self, mu_u, mu_uy, Q_u, Q_u_logdet):
         """
-        Compute the log prior on the model state log(p(u|θ))
+        Compute the log prior on the model state log(p(u|θ)).
         """
         diff_mu_uy_mu_u = mu_uy - mu_u
         log_p_ut = 0.5 * (Q_u_logdet - diff_mu_uy_mu_u.T @ Q_u @ diff_mu_uy_mu_u - self.M * self.log_2pi)
@@ -534,7 +551,7 @@ class AbstractNonlinearINLASPDERegressor(ABC):
 
     def _log_likelihood(self, obs_vals, obs_idxs_flat, mu_uy, Q_obs, Q_obs_logdet):
         """
-        Compute the log likelihood log(p(y|u,θ))
+        Compute the log likelihood log(p(y|u,θ)).
         """
         diff_obs_mu_uy = obs_vals - mu_uy[obs_idxs_flat]
         log_p_yut = 0.5 * (Q_obs_logdet - diff_obs_mu_uy.T @ Q_obs @ diff_obs_mu_uy - self.N * self.log_2pi)
@@ -542,7 +559,7 @@ class AbstractNonlinearINLASPDERegressor(ABC):
 
     def _logpdf_marginal_posterior(self, params, Q_u, Q_uy, Q_obs, mu_u, mu_uy, obs_dict, shape, regularisation=1e-3, **kwargs):
         """
-        Compute the log marginal on parameters
+        Compute the log marginal on parameters.
         log(p(θ|y)) = log(p(θ)) + log(p(u|θ)) + log(p(y|u,θ)) - log(p(u|y,θ)) + const.
         """
 
@@ -572,7 +589,10 @@ class AbstractNonlinearINLASPDERegressor(ABC):
         log_p_ty = log_p_t + log_p_ut + log_p_yut - log_p_uyt
         return log_p_ty
 
-    def logpdf_marginal_posterior(self, params, u0, obs_dict, parameterisation, return_conditional_params=False, debug=False, **kwargs):
+    def logpdf_marginal_posterior(self, params, u0, obs_dict, parameterisation='moment', return_conditional_params=False, debug=False, **kwargs):
+        """
+        Return the approximate log marginal log(p(θ|y)) and optionally, the marginal statistics on the states if return_conditional_params=True
+        """
         
         # Process args
         obs_count = len(obs_dict.keys())
@@ -609,9 +629,28 @@ class AbstractNonlinearINLASPDERegressor(ABC):
                 NotImplementedError
         return logpdf
 
-    def update(self, calc_std=False, calc_mnll=False, tol=1e-3, parameterisation='natural', **kwargs):
+    def update(self, calc_std=False, calc_mnll=False, parameterisation='natural', **kwargs):
         """
-        parameterisation = 'natural' or 'moment' (update method based on averaging in natural parameterisation space of moment parameterisation space)
+        Update the linearisation point in the iteration.
+
+        Parameters
+        ----------
+        calc_std: bool
+            Option to compute the state uncertainty at each iteration.
+        calc_mnll: bool
+            Option to compute and display the mean nll at each iteration.
+        parameterisation: 'moment' or 'natural'
+            Whether to apply update rule based on the moment parameterisation or the natural parameterisation.
+        kwargs:
+            Keyword arguments to be passed to the abstract methods.
+
+        Note
+        ----
+        - When parameterisation='moment', we use the averaged posterior mean to update the linearisation point.
+        - When parameterisation='natural', we use the averaged natural parameters to update the linearisation point.
+          Specifically, we take averages of the shift vector b and the precision matrix P, and compute the corresonding
+          mean by m = P^{-1}b, which will be used as the linearisation point.
+
         """
         # Compute posterior marginals
         logpdf = lambda x, return_conditional_params=False: self.logpdf_marginal_posterior(x, self.u0, self.obs_dict,
@@ -675,6 +714,36 @@ class AbstractNonlinearINLASPDERegressor(ABC):
         self.u0_hist.append(self.u0.copy())
 
     def fit(self, obs_dict, obs_std, max_iter, parameterisation='natural', animated=False, calc_std=False, calc_mnll=False, **kwargs):
+        """
+        Fit nonlinear SPDE model on data.
+
+        Parameters
+        ----------
+        obs_dict: dict
+            Dictionary of observations.
+        obs_std: float
+            Standard deviaion of noise (is this necessary?)
+        max_iter: int
+            Maximum number of iterations
+        parameterisation: 'moment' or 'natural'
+            Whether to apply update rule based on the moment parameterisation or the natural parameterisation.
+        animated: bool
+            Option to display performance progress with animation.
+        calc_std: bool
+            Option to compute the state uncertainty at each iteration.
+        calc_mnll: bool
+            Option to compute and display the mean nll at each iteration.
+        kwargs:
+            Keyword arguments to be passed to the abstract methods.
+
+        Note
+        ----
+        - When parameterisation='moment', we use the averaged posterior mean to update the linearisation point.
+        - When parameterisation='natural', we use the averaged natural parameters to update the linearisation point.
+          Specifically, we take averages of the shift vector b and the precision matrix P, and compute the corresonding
+          mean by m = P^{-1}b, which will be used as the linearisation point.
+
+        """
         self.preempt_requested = False
         self.obs_dict = obs_dict
         self.obs_count = len(obs_dict)
@@ -712,7 +781,7 @@ class AbstractNonlinearINLASPDERegressor(ABC):
 
         return self.u0.copy(), self.posterior_mean.copy(), self.posterior_std.copy()
 
-    ##### Extra features to produce animation of iterations #####
+    ##### Extra features to produce animation and plots of iterations #####
     def init_animation(self):
         obs_idx = np.array(list(self.obs_dict.keys()), dtype=int)
         obs_val = np.array(list(self.obs_dict.values()), dtype=float)

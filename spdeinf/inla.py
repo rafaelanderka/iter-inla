@@ -13,8 +13,15 @@ from spdeinf import linear, nonlinear, util
 def sample_parameter_posterior(logpdf, x0, opt_method="Nelder-Mead", sampling_threshold=5,
                                sampling_step_size=2, sampling_evec_scales=None, param_bounds=None, tol=1e-7):
     """
-    param_1 = mean or shift
-    param_2 = vars or precision
+    Sample quadrature nodes in parameter space based on the posterior marginal landscape log(p(θ|y)).
+
+    Note:
+        Depending on which parameterisation is used for the update rule, the variables param_1 and param_2 changes.
+        In particular, we have:
+
+        param_1 = mean (moment) / shift (natural)
+        param_2 = variances (moment) / precision (natural)
+
     """
     # Process args
     if not sampling_evec_scales:
@@ -92,8 +99,20 @@ def sample_parameter_posterior(logpdf, x0, opt_method="Nelder-Mead", sampling_th
 
 def compute_field_posterior_stats(samples, parameterisation='moment', calc_std=True):
     """
-    param_1 = mean or shift
-    param_2 = vars or precision
+    Compute the averaged statistics of the state.
+
+    Notes
+    -----
+    - If parameterisation = 'moment', we compute the averaged posterior mean.
+    - If parameterisation = 'natural', we compute the averaged posterior shift and averaged posterior precision, and compute
+      the corresponding mean from these quantities.
+    - If calc_std = True, we can output the uncertainty estimates. But this is optional, as it does not affect the algorithm.
+    - Depending on which parameterisation is used for the update rule, the variables param_1 and param_2 changes.
+      In particular, we have:
+
+        param_1 = mean (moment) / shift (natural)
+        param_2 = variances (moment) / precision (natural)
+
     """
     # Unpack samples
     samples_x = samples[0]
