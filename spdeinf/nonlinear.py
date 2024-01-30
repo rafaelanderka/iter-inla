@@ -623,12 +623,13 @@ class AbstractNonlinearINLASPDERegressor(ABC):
         # Compute marginal posterior
         logpdf = self._logpdf_marginal_posterior(params, Q_u, Q_uy, Q_obs, mu_u.flatten(), mu_uy.flatten(), obs_dict, u0.shape, **kwargs)
         if return_conditional_params:
-            if parameterisation == 'moment':
-                return logpdf, mu_uy, res['posterior_var']
-            elif parameterisation == 'natural':
-                return logpdf, res['posterior_shift'], Q_uy
-            else:
-                NotImplementedError
+            # if parameterisation == 'moment':
+            #     return logpdf, mu_uy, res['posterior_var']
+            # elif parameterisation == 'natural':
+            #     return logpdf, res['posterior_shift'], Q_uy
+            # else:
+            #     NotImplementedError
+            return logpdf, mu_uy, res['posterior_var'], res['posterior_shift'], Q_uy
         return logpdf
 
     def update(self, calc_std=False, calc_mnll=False, parameterisation='natural', **kwargs):
@@ -660,7 +661,7 @@ class AbstractNonlinearINLASPDERegressor(ABC):
                                                                                            return_conditional_params=return_conditional_params,
                                                                                            **kwargs)
         try:
-            samples, H_v, params_opt = inla.sample_parameter_posterior(logpdf, self.param0,
+            samples, H_v, params_opt, p_uy = inla.sample_parameter_posterior(logpdf, self.param0,
                                                                        param_bounds=self.param_bounds,
                                                                        sampling_evec_scales=self.sampling_evec_scales,
                                                                        sampling_threshold=self.sampling_threshold
@@ -694,7 +695,8 @@ class AbstractNonlinearINLASPDERegressor(ABC):
 
         # Compute negative log predictive likelihood 
         if calc_mnll:
-            self.mnll = -stats.norm.logpdf(self.u.flatten(), loc=self.posterior_mean.flatten(), scale=self.posterior_std.flatten()).mean()
+            # self.mnll = -stats.norm.logpdf(self.u.flatten(), loc=self.posterior_mean.flatten(), scale=self.posterior_std.flatten()).mean()
+            self.mnll = -p_uy.logpdf(self.u).mean()
             self.mnll_hist.append(self.mnll)
 
         # Sweep marginal posterior for plotting

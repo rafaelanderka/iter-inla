@@ -29,7 +29,7 @@ c_prior_mode = 2.
 c_0 = np.log(c_prior_mode) + (tau_c ** (-2))
 
 # Process noise prior
-tau_k = 1
+tau_k = 0.5
 k_prior_mode = 0.05
 k_0 = np.log(k_prior_mode) + (tau_k ** (-2))
 
@@ -42,6 +42,8 @@ param0 = np.array([b_prior_mode, c_prior_mode, k_prior_mode, s_prior_mode])
 param_priors = [LogNormal(mu=b_0, sigma=1/tau_b), LogNormal(mu=c_0, sigma=1/tau_c),
                 LogNormal(mu=k_0, sigma=1/tau_k), LogNormal(mu=s_0, sigma=1/tau_s)]
 param_bounds = [(0.1, 1), (0.1, 5), (0, 1), (0, 1)]
+
+#%%
 
 # Create temporal discretisation
 L_t = 25                      # Duration of simulation [s]
@@ -132,7 +134,7 @@ class NonlinearPendulumINLARegressor(AbstractNonlinearINLASPDERegressor):
 # Fit Nonlinear Pendulum Regressor on data #
 ############################################
 max_iter = 10
-parameterisation = 'natural' # 'moment' or 'natural'
+parameterisation = 'moment' # 'moment' or 'natural'
 model = NonlinearPendulumINLARegressor(u, 1, dt, param0,
                                        mixing_coef=0.5,
                                        param_bounds=param_bounds,
