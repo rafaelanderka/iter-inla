@@ -12,6 +12,10 @@ from spdeinf import linear, nonlinear, util
 
 def sample_parameter_posterior(logpdf, x0, opt_method="Nelder-Mead", sampling_threshold=5,
                                sampling_step_size=2, sampling_evec_scales=None, param_bounds=None, tol=1e-7):
+    """
+    param_1 = mean or shift
+    param_2 = vars or precision
+    """
     # Process args
     if not sampling_evec_scales:
         sampling_evec_scales = len(x0) * [1]
@@ -32,11 +36,11 @@ def sample_parameter_posterior(logpdf, x0, opt_method="Nelder-Mead", sampling_th
     H_w, H_v = eigh(H) # Note H_v is (M, N)
 
     # The first sample is directly at the mode
-    p0, post_mean_x0, post_var_x0 = logpdf_full(x_map)
+    p0, post_param_1, post_param_2 = logpdf_full(x_map)
     samples_x = [x_map]
     samples_p = [p0]
-    samples_mu = [post_mean_x0]
-    samples_var = [post_var_x0]
+    samples_param_1 = [post_param_1]
+    samples_param_2 = [post_param_2]
 
     # Sample along eigenvectors of modal Hessian starting from mode
     ranges = [] # Keeps track of the min. and max. steps taken in each direction
@@ -47,12 +51,12 @@ def sample_parameter_posterior(logpdf, x0, opt_method="Nelder-Mead", sampling_th
             xS = x_map + offset * sampling_step_size * sampling_evec_scales[i] * evec
             if not (xS <= 0).any():
                 while p0 - logpdf(xS) < sampling_threshold:
-                    break
-                    pS, post_mean, post_var = logpdf_full(xS)
+                    # break
+                    pS, post_param_1, post_param_2 = logpdf_full(xS)
                     samples_x.append(xS.copy())
                     samples_p.append(pS)
-                    samples_mu.append(post_mean)
-                    samples_var.append(post_var)
+                    samples_param_1.append(post_param_1)
+                    samples_param_2.append(post_param_2)
                     offset += dir
                     xS = x_map + offset * sampling_step_size * sampling_evec_scales[i] * evec
                     if (xS <= 0).any():
@@ -69,36 +73,55 @@ def sample_parameter_posterior(logpdf, x0, opt_method="Nelder-Mead", sampling_th
         xS = x_map + sampling_step_size * (sampling_evec_scales * offset * H_v).sum(axis=1)
         if (xS <= 0).any():
             continue
-        pS, post_mean, post_var = logpdf_full(xS)
+        pS, post_param_1, post_param_2 = logpdf_full(xS)
         if p0 - pS < sampling_threshold:
             samples_x.append(xS)
             samples_p.append(pS)
-            samples_mu.append(post_mean)
-            samples_var.append(post_var)
+            samples_param_1.append(post_param_1)
+            samples_param_2.append(post_param_2)
     samples_x = np.array(samples_x)
     samples_p = np.array(samples_p)
-    samples_mu = np.array(samples_mu)
-    samples_var = np.array(samples_var)
+    samples_param_1 = np.array(samples_param_1)
+    samples_param_2 = np.array(samples_param_2)
 
     # Exponentiate and normalise samples of marginal posterior
     samples_p = np.exp(samples_p - samples_p.mean())
     samples_p /= np.sum(samples_p)
-    return [samples_x, samples_p, samples_mu, samples_var], H_v, x_map
+    return [samples_x, samples_p, samples_param_1, samples_param_2], H_v, x_map
 
 
-def compute_field_posterior_stats(samples):
+def compute_field_posterior_stats(samples, parameterisation='natural', calc_std=False):
+    """
+    param_1 = mean or shift
+    param_2 = vars or precision
+    """
     # Unpack samples
     samples_x = samples[0]
     samples_p = samples[1]
-    samples_mu = samples[2]
-    samples_var = samples[3]
+    samples_param_1 = samples[2]
+    samples_param_2 = samples[3]
 
-    # Compute summary statistics
-    posterior_mean_marg = (samples_p[:,None,None] * samples_mu).sum(axis=0)
-    posterior_marg_second_moment = (samples_p[:,None,None] * (samples_var**2 + samples_mu**2)).sum(axis=0)
-    posterior_var_marg = posterior_marg_second_moment - posterior_mean_marg ** 2
-    posterior_std_marg = np.sqrt(posterior_var_marg)
-    return posterior_mean_marg, posterior_std_marg
+    if parameterisation == 'moment':
+        # Compute summary statistics
+        posterior_mean_marg = (samples_p[:,None,None] * samples_param_1).sum(axis=0)
+        posterior_marg_second_moment = (samples_p[:,None,None] * (samples_param_2**2 + samples_param_1**2)).sum(axis=0)
+        posterior_var_marg = posterior_marg_second_moment - posterior_mean_marg ** 2
+        posterior_std_marg = np.sqrt(posterior_var_marg)
+        if calc_std:
+            return posterior_mean_marg, posterior_std_marg
+        else:
+            return posterior_mean_marg
+    elif parameterisation == 'natural':
+        posterior_shift_marg = (samples_p[:,None] * samples_param_1).sum(axis=0)
+        posterior_precision_marg = (samples_p * samples_param_2).sum()
+        posterior_precision_cholesky = cholesky(posterior_precision_marg)
+        posterior_mean_marg = posterior_precision_cholesky(posterior_shift_marg)
+        if calc_std:
+            posterior_var_marg = posterior_precision_cholesky.spinv().diagonal()
+            posterior_std_marg = np.sqrt(posterior_var_marg)
+            return posterior_mean_marg, posterior_std_marg
+        else:
+            return posterior_mean_marg
 
 
 def _hessian(fun, x, epsilon=1e-5):

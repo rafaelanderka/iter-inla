@@ -21,7 +21,7 @@ def fit_spde_gmrf(u, obs_dict, obs_std, diff_op, prior_mean=0, c=1, calc_std=Fal
 
 def _fit_gmrf(ground_truth, obs_dict, obs_std, prior_mean, prior_precision, calc_std=False, calc_mnll=False,
             include_initial_cond=False, include_terminal_cond=False, include_boundary_cond=False,
-            regularisation=0, return_prior_precision=False, return_posterior_precision=False):
+            regularisation=0, return_prior_precision=False, return_posterior_precision=False, return_posterior_shift=False):
     # Process args
     shape = ground_truth.shape
     N = np.prod(shape)
@@ -37,16 +37,16 @@ def _fit_gmrf(ground_truth, obs_dict, obs_std, prior_mean, prior_precision, calc
     # Construct observation mask and posterior shift
     grid_idxs = util.get_domain_indices(shape)
     mask = np.zeros(N)
-    posterior_shift = np.zeros(np.prod(shape))
+    posterior_shift_data_term = np.zeros(np.prod(shape))
     for idx in obs_idxs:
         pr_m = prior_mean if isinstance(prior_mean, numbers.Number) else prior_mean[idx]
         mask[grid_idxs[tuple(idx)]] = obs_precision
-        posterior_shift[grid_idxs[idx]] = (obs_dict[idx] - pr_m) * obs_precision
+        posterior_shift_data_term[grid_idxs[idx]] = (obs_dict[idx] - pr_m) * obs_precision
 
     obs_mask = mask.copy().astype(bool)
     for idx in boundary_idxs:
         mask[idx] = obs_precision
-        posterior_shift[idx] = gt_prior_diff[idx] * obs_precision
+        posterior_shift_data_term[idx] = gt_prior_diff[idx] * obs_precision
 
     # Construct posterior precision
     posterior_precision = prior_precision + sparse.diags(mask, format="csr")
@@ -56,7 +56,7 @@ def _fit_gmrf(ground_truth, obs_dict, obs_std, prior_mean, prior_precision, calc
     # Compute posterior mean
     res = dict()
     posterior_precision_cholesky = cholesky(posterior_precision)
-    posterior_mean_data_term = posterior_precision_cholesky(posterior_shift).reshape(shape)
+    posterior_mean_data_term = posterior_precision_cholesky(posterior_shift_data_term).reshape(shape)
     posterior_mean = prior_mean + posterior_mean_data_term
     res['posterior_mean'] = posterior_mean
     res['posterior_mean_data_term'] = posterior_mean_data_term
@@ -78,8 +78,13 @@ def _fit_gmrf(ground_truth, obs_dict, obs_std, prior_mean, prior_precision, calc
     if return_prior_precision:
         res['prior_precision'] = prior_precision
 
-    # Optionally return posterior precision
+    # Optionally return posterior precision and shift
     if return_posterior_precision:
         res['posterior_precision'] = posterior_precision
         res['posterior_precision_chol'] = posterior_precision_cholesky
+    
+    if return_posterior_shift:
+        posterior_shift = posterior_precision @ prior_mean.squeeze() + posterior_shift_data_term
+        res['posterior_shift'] = posterior_shift
+
     return res

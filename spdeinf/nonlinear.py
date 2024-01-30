@@ -572,7 +572,7 @@ class AbstractNonlinearINLASPDERegressor(ABC):
         log_p_ty = log_p_t + log_p_ut + log_p_yut - log_p_uyt
         return log_p_ty
 
-    def logpdf_marginal_posterior(self, params, u0, obs_dict, return_conditional_params=False, debug=False, **kwargs):
+    def logpdf_marginal_posterior(self, params, u0, obs_dict, parameterisation, return_conditional_params=False, debug=False, **kwargs):
         
         # Process args
         obs_count = len(obs_dict.keys())
@@ -584,7 +584,7 @@ class AbstractNonlinearINLASPDERegressor(ABC):
 
         # Get "data term" of full conditional
         res = linear._fit_gmrf(self.u, obs_dict, obs_noise, prior_mean, prior_precision, calc_std=return_conditional_params,
-                            include_initial_cond=False, return_posterior_precision=True, regularisation=1e-5)
+                            include_initial_cond=False, return_posterior_precision=True, return_posterior_shift=True, regularisation=1e-5)
         
         # Define prior and full condtional params
         mu_u = prior_mean
@@ -601,23 +601,47 @@ class AbstractNonlinearINLASPDERegressor(ABC):
         # Compute marginal posterior
         logpdf = self._logpdf_marginal_posterior(params, Q_u, Q_uy, Q_obs, mu_u.flatten(), mu_uy.flatten(), obs_dict, u0.shape, **kwargs)
         if return_conditional_params:
-            return logpdf, mu_uy, res['posterior_var']
+            if parameterisation == 'moment':
+                return logpdf, mu_uy, res['posterior_var']
+            elif parameterisation == 'natural':
+                return logpdf, res['posterior_shift'], Q_uy
+            else:
+                NotImplementedError
         return logpdf
 
-    def update(self, calc_std=False, calc_mnll=False, tol=1e-3, **kwargs):
+    def update(self, calc_std=False, calc_mnll=False, tol=1e-3, parameterisation='natural', **kwargs):
+        """
+        parameterisation = 'natural' or 'moment' (update method based on averaging in natural parameterisation space of moment parameterisation space)
+        """
         # Compute posterior marginals
         logpdf = lambda x, return_conditional_params=False: self.logpdf_marginal_posterior(x, self.u0, self.obs_dict,
+                                                                                           parameterisation=parameterisation,
                                                                                            return_conditional_params=return_conditional_params,
                                                                                            **kwargs)
         try:
-            samples, H_v, params_opt = inla.sample_parameter_posterior(logpdf, self.param0, param_bounds=self.param_bounds, sampling_evec_scales=self.sampling_evec_scales, sampling_threshold=self.sampling_threshold)
+            samples, H_v, params_opt = inla.sample_parameter_posterior(logpdf, self.param0,
+                                                                       param_bounds=self.param_bounds,
+                                                                       sampling_evec_scales=self.sampling_evec_scales,
+                                                                       sampling_threshold=self.sampling_threshold
+                                                                       )
         except CholmodNotPositiveDefiniteError:
             print("Posterior precision not positive definite")
             self.preempt_requested = True
             return
-        self.posterior_mean, self.posterior_std = inla.compute_field_posterior_stats(samples)
-        self.posterior_mean_hist.append(self.posterior_mean.copy())
-        self.posterior_std_hist.append(self.posterior_std.copy())
+
+        out = inla.compute_field_posterior_stats(samples, parameterisation, calc_std)
+
+        if calc_std:
+            self.posterior_mean, self.posterior_std = out
+            self.posterior_mean = self.posterior_mean.reshape(self.u.shape)
+            self.posterior_std = self.posterior_std.reshape(self.u.shape)
+            self.posterior_mean_hist.append(self.posterior_mean.copy())
+            self.posterior_std_hist.append(self.posterior_std.copy())
+        else:
+            self.posterior_mean = out
+            self.posterior_mean = self.posterior_mean.reshape(self.u.shape)
+            self.posterior_mean_hist.append(self.posterior_mean.copy())
+
         self.samples_x_hist.append(samples[0])
         self.params_opt = params_opt
 
@@ -650,7 +674,7 @@ class AbstractNonlinearINLASPDERegressor(ABC):
         self.u0 = self.persistance_coef * self.u0 + self.mixing_coef * self.posterior_mean
         self.u0_hist.append(self.u0.copy())
 
-    def fit(self, obs_dict, obs_std, max_iter, animated=False, calc_std=False, calc_mnll=False, **kwargs):
+    def fit(self, obs_dict, obs_std, max_iter, parameterisation='natural', animated=False, calc_std=False, calc_mnll=False, **kwargs):
         self.preempt_requested = False
         self.obs_dict = obs_dict
         self.obs_count = len(obs_dict)
@@ -671,7 +695,7 @@ class AbstractNonlinearINLASPDERegressor(ABC):
             # Perform update
             is_final_iteration = i == max_iter - 1
             calc_std = calc_std or is_final_iteration
-            self.update(calc_std=calc_std, calc_mnll=calc_mnll, **kwargs)
+            self.update(calc_std=calc_std, calc_mnll=calc_mnll, parameterisation=parameterisation, **kwargs)
             if calc_mnll:
                 print(f'iter={i+1:d}, RMSE={self.rmse}, MNLL={self.mnll}')
             else:
