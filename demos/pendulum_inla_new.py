@@ -48,7 +48,7 @@ np.random.seed(2)
 
 # Create temporal discretisation
 L_t = 25                      # Duration of simulation [s]
-dt = 0.05                     # Infinitesimal time
+dt = 0.01                     # Infinitesimal time
 N_t = int(L_t / dt) + 1       # Points number of the temporal mesh
 T = np.linspace(0, L_t, N_t)  # Temporal array
 T = np.around(T, decimals=1)
@@ -169,6 +169,7 @@ iter_count = len(model.mse_hist)
 
 
 # %%
+# Plot credible intervals
 from spdeinf.util import cred_wt
 
 num_samples = 5000
