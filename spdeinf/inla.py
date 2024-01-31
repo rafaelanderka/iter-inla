@@ -53,7 +53,18 @@ def sample_parameter_posterior(logpdf, x0, opt_method="Nelder-Mead", sampling_th
     H_w, H_v = eigh(H) # Note H_v is (M, N)
 
     # The first sample is directly at the mode
-    p0, post_mean, post_vars, post_shift, post_precision = logpdf_full(x_map)
+    def evaluate_logpdf_full(x):
+        # For backward compatibility
+        try:
+            p0, post_mean, post_vars, post_shift, post_precision = logpdf_full(x)
+        except ValueError:
+            p0, post_mean, post_vars = logpdf_full(x)
+            post_shift = None
+            post_precision = None
+        return p0, post_mean, post_vars, post_shift, post_precision
+    
+    p0, post_mean, post_vars, post_shift, post_precision = evaluate_logpdf_full(x_map)
+
     samples_x = [x_map]
     samples_p = [p0]
     samples_mean = [post_mean]
@@ -71,7 +82,7 @@ def sample_parameter_posterior(logpdf, x0, opt_method="Nelder-Mead", sampling_th
             if not (xS <= 0).any():
                 while p0 - logpdf(xS) < sampling_threshold:
                     # break
-                    pS, post_mean, post_vars, post_shift, post_precision = logpdf_full(xS)
+                    pS, post_mean, post_vars, post_shift, post_precision = evaluate_logpdf_full(xS)
                     samples_x.append(xS.copy())
                     samples_p.append(pS)
                     samples_mean.append(post_mean)
@@ -94,7 +105,7 @@ def sample_parameter_posterior(logpdf, x0, opt_method="Nelder-Mead", sampling_th
         xS = x_map + sampling_step_size * (sampling_evec_scales * offset * H_v).sum(axis=1)
         if (xS <= 0).any():
             continue
-        pS, post_mean, post_vars, post_shift, post_precision = logpdf_full(xS)
+        pS, post_mean, post_vars, post_shift, post_precision = evaluate_logpdf_full(xS)
         if p0 - pS < sampling_threshold:
             samples_x.append(xS)
             samples_p.append(pS)

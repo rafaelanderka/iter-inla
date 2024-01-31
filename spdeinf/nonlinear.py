@@ -250,7 +250,7 @@ class NonlinearINLASPDERegressor(object):
         logpdf = lambda x, return_conditional_params=False: self.logpdf_marginal_posterior(x, self.u0, self.obs_dict, self.diff_op_generator, self.prior_mean_generator,
                                                                                            return_conditional_params=return_conditional_params)
         try:
-            samples, H_v, params_opt = inla.sample_parameter_posterior(logpdf, self.param0, param_bounds=self.param_bounds, sampling_evec_scales=self.sampling_evec_scales, sampling_threshold=self.sampling_threshold)
+            samples, H_v, params_opt, p_uy = inla.sample_parameter_posterior(logpdf, self.param0, param_bounds=self.param_bounds, sampling_evec_scales=self.sampling_evec_scales, sampling_threshold=self.sampling_threshold)
         except CholmodNotPositiveDefiniteError:
             print("Posterior precision not positive definite")
             self.preempt_requested = True
@@ -667,7 +667,7 @@ class AbstractNonlinearINLASPDERegressor(ABC):
                                                                              sampling_threshold=self.sampling_threshold
                                                                             )
             self.marginal_dist_u_y = p_uy
-            
+
         except CholmodNotPositiveDefiniteError:
             print("Posterior precision not positive definite")
             self.preempt_requested = True
