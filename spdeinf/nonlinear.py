@@ -422,7 +422,6 @@ class AbstractNonlinearINLASPDERegressor(ABC):
                  param_priors: List[distributions.Distribution] = None,
                  param_bounds=None,
                  params_true=None,
-                 learn_obs_noise=False,
                  mixing_coef=1.,
                  sampling_evec_scales=None,
                  sampling_threshold=None) -> None:
@@ -497,6 +496,7 @@ class AbstractNonlinearINLASPDERegressor(ABC):
         self.preempt_requested = False
         self.sigma = 1000 
         self.params_opt = None
+        self.marginal_dist_u_y = None # to store marginal Gaussian mixture model p(u_i | y)
 
         # Conditional/posterior parameters
         self.posterior_mean = None
@@ -662,10 +662,12 @@ class AbstractNonlinearINLASPDERegressor(ABC):
                                                                                            **kwargs)
         try:
             samples, H_v, params_opt, p_uy = inla.sample_parameter_posterior(logpdf, self.param0,
-                                                                       param_bounds=self.param_bounds,
-                                                                       sampling_evec_scales=self.sampling_evec_scales,
-                                                                       sampling_threshold=self.sampling_threshold
-                                                                       )
+                                                                             param_bounds=self.param_bounds,
+                                                                             sampling_evec_scales=self.sampling_evec_scales,
+                                                                             sampling_threshold=self.sampling_threshold
+                                                                            )
+            self.marginal_dist_u_y = p_uy
+            
         except CholmodNotPositiveDefiniteError:
             print("Posterior precision not positive definite")
             self.preempt_requested = True

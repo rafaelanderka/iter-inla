@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 
 class Distribution(ABC):
     """
-    Abstract class for distributions
+    Abstract class for distributions.
     """
 
     @abstractmethod
@@ -15,7 +15,7 @@ class Distribution(ABC):
 
 class Normal(Distribution):
     """
-    Gaussian distribution
+    Gaussian distribution.
     """
     def __init__(self, mu, sigma):
         self.mu = mu # mean
@@ -27,8 +27,8 @@ class Normal(Distribution):
 
 class LogNormal(Distribution):
     """
-    Lognormal distribution
-    This is given by Y = e^X
+    Lognormal distribution.
+    This is given by Y = e^X.
     """
     def __init__(self, mu, sigma):
         # Note: mu and sigma are the mean and std of the r.v. X
@@ -42,7 +42,7 @@ class LogNormal(Distribution):
 class GaussianMixture(Distribution):
     """
     Gaussian mixture distribution.
-    The pdf is given by p(x) = \sum_k w_k N(x|μ_k, σ_k)
+    The pdf is given by p(x) = \sum_k w_k N(x|μ_k, σ_k).
     """
     def __init__(self, weights, means, stds):
         assert len(weights) == len(means), 'weights must have the same length as means'
@@ -60,11 +60,16 @@ class GaussianMixture(Distribution):
     def logpdf(self, x):
         return np.log(self.pdf(x))
 
+    def sample(self, num_samples):
+        mixture_idx = np.random.choice(len(self.weights), size=num_samples, replace=True, p=self.weights) # choose which Gaussian to sample from
+        samples = np.fromiter([stats.norm.rvs(self.means[i], self.stds[i]) for i in mixture_idx], dtype=np.float64) # sample from chosen Gaussians
+        return samples
+
 
 class MarginalGaussianMixture(Distribution):
     """
     Marginal Gaussian mixture on each component.
-    The pdf is given by p(x_i) = \sum_k w_k N(x_i|μ_i^k, σ_i^k) for i = 1, ..., D
+    The pdf is given by p(x_i) = \sum_k w_k N(x_i|μ_i^k, σ_i^k) for i = 1, ..., D.
     """
     def __init__(self, weights, means, stds):
         shape = means.shape[1:]
@@ -87,6 +92,12 @@ class MarginalGaussianMixture(Distribution):
 
     def logpdf(self, x):
         return np.log(self.pdf(x))
+
+    def sample(self, num_samples):
+        mixture_idx = np.random.choice(len(self.weights), size=num_samples, replace=True, p=self.weights) # Shape (S, ...)
+        samples = np.array([stats.norm.rvs(self.means[i], self.stds[i]) for i in mixture_idx]) # Shape (S, ...)
+        samples = samples.reshape((num_samples, *self.shape))
+        return samples
 
 
 # %%

@@ -44,6 +44,7 @@ param_priors = [LogNormal(mu=b_0, sigma=1/tau_b), LogNormal(mu=c_0, sigma=1/tau_
 param_bounds = [(0.1, 1), (0.1, 5), (0, 1), (0, 1)]
 
 #%%
+np.random.seed(2)
 
 # Create temporal discretisation
 L_t = 25                      # Duration of simulation [s]
@@ -134,7 +135,7 @@ class NonlinearPendulumINLARegressor(AbstractNonlinearINLASPDERegressor):
 # Fit Nonlinear Pendulum Regressor on data #
 ############################################
 max_iter = 10
-parameterisation = 'moment' # 'moment' or 'natural'
+parameterisation = 'natural' # 'moment' or 'natural'
 model = NonlinearPendulumINLARegressor(u, 1, dt, param0,
                                        mixing_coef=0.5,
                                        param_bounds=param_bounds,
@@ -142,30 +143,61 @@ model = NonlinearPendulumINLARegressor(u, 1, dt, param0,
                                        sampling_evec_scales=[0.1, 0.1, 0.1, 0.02],
                                        sampling_threshold=1)
 
-model.fit(obs_dict, obs_std, max_iter=max_iter, parameterisation=parameterisation, animated=True, calc_std=True, calc_mnll=True)
+model.fit(obs_dict, obs_std, max_iter=max_iter, parameterisation=parameterisation, animated=False, calc_std=False, calc_mnll=True)
 iter_count = len(model.mse_hist)
 
 
 ############
 # Plot fit #
 ############
-plt.figure(figsize=(3,3))
-plt.plot(T, u.squeeze(), "b", label="Ground truth")
-plt.plot(T, model.posterior_mean.squeeze(), "k", label="Posterior mean")
-plt.plot(T, model.posterior_mean.squeeze() + model.posterior_std.squeeze(), "--", color="grey", label="Posterior std. dev.")
-plt.plot(T, model.posterior_mean.squeeze() - model.posterior_std.squeeze(), "--", color="grey")
-plt.axvline(dt * obs_loc_1, color='grey', ls=':')
-plt.scatter(dt * obs_idxs[:,1], obs_vals, c="r", marker="x", label="Observations")
-plt.xlabel("$t$")
-plt.ylabel("$u$")
-plt.tight_layout()
-plt.savefig("figures/pendulum/pendulum_spde_inla_new_fit.pdf")
-plt.show()
+# plt.figure(figsize=(3,3))
+# plt.plot(T, u.squeeze(), "b", label="Ground truth")
+# plt.plot(T, model.posterior_mean.squeeze(), "k", label="Posterior mean")
+# plt.plot(T, model.posterior_mean.squeeze() + model.posterior_std.squeeze(), "--", color="grey", label="Posterior std. dev.")
+# plt.plot(T, model.posterior_mean.squeeze() - model.posterior_std.squeeze(), "--", color="grey")
+# plt.axvline(dt * obs_loc_1, color='grey', ls=':')
+# plt.scatter(dt * obs_idxs[:,1], obs_vals, c="r", marker="x", label="Observations")
+# plt.xlabel("$t$")
+# plt.ylabel("$u$")
+# plt.tight_layout()
+# plt.savefig("figures/pendulum/pendulum_spde_inla_new_fit.pdf")
+# plt.show()
 
-# Save animation
-print("Saving animation...")
-model.save_animation("figures/pendulum/pendulum_inla_new_iter_animation.gif", fps=3)
-
+# # Save animation
+# print("Saving animation...")
+# model.save_animation("figures/pendulum/pendulum_inla_new_iter_animation.gif", fps=3)
 
 
 # %%
+from spdeinf.util import cred_wt
+
+num_samples = 5000
+final_dist = model.marginal_dist_u_y
+samples = final_dist.sample(num_samples)
+samples = np.reshape(samples, (num_samples, -1))
+
+weights = np.ones(num_samples) / num_samples
+creds = [50, 60, 70, 80, 90, 95]
+
+list_of_intervals = []
+for i in range(samples.shape[1]):
+    intervals = cred_wt(samples[:,i], weights, creds)
+    list_of_intervals.append(intervals)
+
+#%%
+plt.figure(figsize=(4,3))
+for cred in creds:
+    lower_lims = [interval[cred][0] for interval in list_of_intervals]
+    upper_lims = [interval[cred][1] for interval in list_of_intervals]
+    plt.fill_between(T * dt, lower_lims, upper_lims, color='steelblue', alpha=1-cred/120, edgecolor='None')
+
+plt.plot(T * dt, u[0], c='C1', linewidth=4)
+plt.plot(T * dt, model.u0[0], c='k', linestyle='--', linewidth=2)
+# plt.axvline(obs_loc_1 * dt, color='grey', ls=':', linewidth=2) 
+# plt.scatter(obs_idxs[:,1] * dt, obs_vals, c='k', zorder=10)
+plt.xlabel("$t$", fontsize=16)
+plt.ylabel("$u$", fontsize=16)
+plt.xticks(fontsize=12)
+plt.yticks(fontsize=12)
+plt.tight_layout()
+plt.show()
