@@ -20,7 +20,7 @@ c = 1.
 params_true = np.array([b, c])
 
 # Define parameters of the model parameter priors
-tau_b = 1
+tau_b = 2
 b_prior_mode = 0.2
 b_0 = np.log(b_prior_mode) + (tau_b ** (-2))
 
@@ -29,12 +29,12 @@ c_prior_mode = 2.
 c_0 = np.log(c_prior_mode) + (tau_c ** (-2))
 
 # Process noise prior
-tau_k = 0.5
+tau_k = 2
 k_prior_mode = 0.05
 k_0 = np.log(k_prior_mode) + (tau_k ** (-2))
 
 # Observation noise prior
-tau_s = 1
+tau_s = 2
 s_prior_mode = 0.2
 s_0 = np.log(s_prior_mode) + (tau_s ** (-2))
 
@@ -45,10 +45,10 @@ param_bounds = [(0.1, 1), (0.1, 5), (0, 1), (0, 1)]
 
 # Create temporal discretisation
 L_t = 25                      # Duration of simulation [s]
-dt = 0.05                     # Infinitesimal time
+dt = 0.01                     # Infinitesimal time
 N_t = int(L_t / dt) + 1       # Points number of the temporal mesh
 T = np.linspace(0, L_t, N_t)  # Temporal array
-T = np.around(T, decimals=1)
+# T = np.around(T, decimals=1)
 
 # Define the initial condition
 u0 = [0.75 * np.pi, 0.]
@@ -135,14 +135,14 @@ dynamics = PendulumDynamics(dt)
 # Fit model with iterative INLA #
 #################################
 
-max_iter = 10
+max_iter = 15
 parameterisation = 'natural' # 'moment' or 'natural'
 model = IterativeINLARegressor(u, dynamics, param0,
-                               mixing_coef=0.5,
+                               mixing_coef=0.3,
                                param_bounds=param_bounds,
                                param_priors=param_priors,
-                               sampling_evec_scales=[0.1, 0.1, 0.1, 0.02],
-                               sampling_threshold=1)
+                               sampling_evec_scales=[0.05, 0.05, 0.05, 0.05],
+                               sampling_threshold=2.5)
 
 model.fit(obs_dict, obs_std, max_iter=max_iter, parameterisation=parameterisation, animated=False, calc_std=False, calc_mnll=True)
 iter_count = len(model.mse_hist)
