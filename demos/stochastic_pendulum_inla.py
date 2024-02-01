@@ -92,6 +92,7 @@ if generate_data:
     obs_loc_1 = np.where(T == 10.)[0][0]
     obs_dict = util.sample_observations(u, obs_count, obs_std, extent=(None, None, 0, obs_loc_1))
     obs_idxs = np.array(list(obs_dict.keys()), dtype=int)
+    idxs = obs_idxs[:,1]
     obs_vals = np.array(list(obs_dict.values()))
     print("Number of observations:", obs_idxs.shape[0])
 else:
@@ -220,27 +221,28 @@ plt.show()
 # %%
 from spdeinf.util import cred_wt
 
-fname = 'demos/pf_baselines/state_posterior_samples_3.npy'
-posterior_samples = np.load(fname) # Get state samples from the particle smoother
-posterior_samples = posterior_samples[:,:,0]
-N = posterior_samples.shape[1] # Number of samples
+# # Compute MMD score
+# fname = 'demos/pf_baselines/state_posterior_samples_3.npy'
+# posterior_samples = np.load(fname) # Get state samples from the particle smoother
+# posterior_samples = posterior_samples[:,:,0]
+# N = posterior_samples.shape[1] # Number of samples
 
-# shuffle sample indices for each time step for consistent MMD evaluation
-for t, samples_t in enumerate(posterior_samples):
-    shuffled_idxs = np.random.choice(N, size=(N,), replace=False)
-    posterior_samples[t] = posterior_samples[t][shuffled_idxs]
+# # shuffle sample indices for each time step for consistent MMD evaluation
+# for t, samples_t in enumerate(posterior_samples):
+#     shuffled_idxs = np.random.choice(N, size=(N,), replace=False)
+#     posterior_samples[t] = posterior_samples[t][shuffled_idxs]
 
 num_samples = 5000
 final_dist = model.marginal_dist_u_y
 samples = final_dist.sample(num_samples)
 samples = np.reshape(samples, (num_samples, -1))
 
-print("Computing MMD... (this takes a minute or two to compute)")
-x = posterior_samples.T
-y = samples
-mmd = util.MMD(x, y)
+# print("Computing MMD... (this takes a minute or two to compute)")
+# x = posterior_samples.T
+# y = samples
+# mmd = util.MMD(x, y)
 
-print(f"MMD = {mmd}")
+# print(f"MMD = {mmd}")
 
 weights = np.ones(num_samples) / num_samples
 creds = [50, 60, 70, 80, 90, 95]
@@ -261,18 +263,18 @@ plt.plot(T, u[0], c='C1', linewidth=4)
 # plt.plot(T, model.u0[0], c='k', linestyle='--', linewidth=2)
 plt.axvline(obs_loc_1 * dt, color='grey', ls=':', linewidth=2) 
 plt.scatter(idxs * dt, obs_vals, c='k', zorder=10)
-font = font_manager.FontProperties(family='Times New Roman',
-                                   style='normal', size=16,
-                                   weight='bold')
-plt.text(13, 2, f"MMD = {mmd:.3f}", fontproperties=font)
+# font = font_manager.FontProperties(family='Times New Roman',
+#                                    style='normal', size=16,
+#                                    weight='bold')
+# plt.text(13, 2, f"MMD = {mmd:.3f}", fontproperties=font)
 plt.xlabel("$t$", fontsize=12)
 plt.ylabel("$u$", fontsize=12)
 plt.xticks(fontsize=12)
 plt.yticks(fontsize=12)
 plt.tight_layout()
 package_dir = '/Users/sotakao/Dropbox/Mac/Documents/spde-inference'
-plt.savefig(os.path.join(package_dir, "figures/pendulum/stoch_pendulum_spde_inla_fit_2.pdf"))
-
+plt.savefig(os.path.join(package_dir, "figures/pendulum/stoch_pendulum_spde_inla_fit.pdf"))
+plt.show()
 
 
 # %%
