@@ -22,6 +22,7 @@ os.chdir(package_dir)
 # Generate data from nonlinear damped pendulum eqn. #
 #####################################################
 
+generate_data = True # Flag to generate observations or load externally
 just_plot = False # Flag to train from scratch or to load saved result for plotting
 
 ## Generate data from stochastic nonlinear damped pendulum eqn.
@@ -61,53 +62,54 @@ N_t = int(L_t / dt) + 1       # Points number of the temporal mesh
 T = np.linspace(0, L_t, N_t)  # Temporal array
 # T = np.around(T, decimals=1)
 
-# # Define the initial condition    
-# u0 = [0.75 * np.pi, 0.]
+if generate_data:
+    # Define the initial condition    
+    u0 = [0.75 * np.pi, 0.]
 
-# # Define drift and diffusion of SDE
-# SEED = 2374
+    # Define drift and diffusion of SDE
+    SEED = 2374
 
-# def pend(u, t, b, c):
-#     theta, omega = u
-#     dydt = np.array([omega, -b*omega - c*np.sin(theta)])
-#     return dydt
+    def pend(u, t, b, c):
+        theta, omega = u
+        dydt = np.array([omega, -b*omega - c*np.sin(theta)])
+        return dydt
 
-# def diffusion(x, t):
-#     B = np.diag([0., s**2])
-#     return B
+    def diffusion(x, t):
+        B = np.diag([0., s**2])
+        return B
 
-# drift = partial(pend, b=b, c=c)
+    drift = partial(pend, b=b, c=c)
 
-# # Solve system of Ito SDE
-# u = sdeint.itoSRI2(drift, diffusion, u0, T, generator=np.random.default_rng(SEED))
+    # Solve system of Ito SDE
+    u = sdeint.itoSRI2(drift, diffusion, u0, T, generator=np.random.default_rng(SEED))
 
-# # For our purposes we only need the solution for the pendulum angle, theta
-# u = u[:, 0].reshape(1, -1)
+    # For our purposes we only need the solution for the pendulum angle, theta
+    u = u[:, 0].reshape(1, -1)
 
-# # Sample observations
-# obs_std = 1e-1
-# obs_count = 60
-# obs_loc_1 = np.where(T == 10.)[0][0]
-# obs_dict = util.sample_observations(u, obs_count, obs_std, extent=(None, None, 0, obs_loc_1))
-# obs_idxs = np.array(list(obs_dict.keys()), dtype=int)
-# obs_vals = np.array(list(obs_dict.values()))
-# print("Number of observations:", obs_idxs.shape[0])
+    # Sample observations
+    obs_std = 1e-1
+    obs_count = 60
+    obs_loc_1 = np.where(T == 10.)[0][0]
+    obs_dict = util.sample_observations(u, obs_count, obs_std, extent=(None, None, 0, obs_loc_1))
+    obs_idxs = np.array(list(obs_dict.keys()), dtype=int)
+    obs_vals = np.array(list(obs_dict.values()))
+    print("Number of observations:", obs_idxs.shape[0])
+else:
+    # Load pre-generated data
+    cwd = os.getcwd()
+    fname = 'demos/pf_baselines/stoch_pend_b_0.3_c_1_sigmaX_0.2_sigmaY_0.1.npz'
 
-# Load pre-generated data
-cwd = os.getcwd()
-fname = 'demos/pf_baselines/stoch_pend_b_0.3_c_1_sigmaX_0.2_sigmaY_0.1.npz'
+    data = np.load(os.path.join(cwd, fname))
+    u = data['x'][:,0].reshape(1, -1)
+    idxs = np.where(~np.isnan(data['y']))[0]
+    obs_vals = data['y'][idxs]
+    obs_idxs = [(0, idx) for idx in idxs]
+    obs_dict = dict(zip(obs_idxs, obs_vals))
 
-data = np.load(os.path.join(cwd, fname))
-u = data['x'][:,0].reshape(1, -1)
-idxs = np.where(~np.isnan(data['y']))[0]
-obs_vals = data['y'][idxs]
-obs_idxs = [(0, idx) for idx in idxs]
-obs_dict = dict(zip(obs_idxs, obs_vals))
-
-# Variables for plotting
-T = np.linspace(0, L_t, u.shape[1]) 
-T = np.around(T, decimals=1)
-obs_loc_1 = np.where(T == 10.)[0][0]
+    # Variables for plotting
+    T = np.linspace(0, L_t, u.shape[1]) 
+    T = np.around(T, decimals=1)
+    obs_loc_1 = np.where(T == 10.)[0][0]
 
 
 #%%
