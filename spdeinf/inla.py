@@ -1,13 +1,9 @@
 import itertools
 import numpy as np
-import matplotlib.pyplot as plt
 from scipy.linalg import eigh
 from scipy.optimize import minimize
-from abc import ABC, abstractmethod
-from scipy import sparse
 from sksparse.cholmod import cholesky
 
-from spdeinf import linear, nonlinear, util
 from spdeinf.distributions import MarginalGaussianMixture
 
 
@@ -46,7 +42,6 @@ def sample_parameter_posterior(logpdf, x0, opt_method="Nelder-Mead", sampling_th
     print("Finding parameter posterior mode...")
     opt = minimize(fun=neg_logpdf, x0=x0, method=opt_method, bounds=param_bounds)
     x_map = opt["x"]
-    print(opt)
 
     # Calculate eigenvectors of Hessian at mode, to be used as sampling directions
     H = _hessian(neg_logpdf, x_map) # H is (M, M)
