@@ -1,3 +1,4 @@
+#%%
 import csv
 import numpy as np
 
@@ -276,3 +277,65 @@ def cred_wt(x, weights, creds):
         intervals[cred] = (qtls[0], qtls[1])
         qtls = qtls[2:]
     return intervals
+
+
+# Code to compute MMD. Adapted from https://www.kaggle.com/code/onurtunali/maximum-mean-discrepancy/notebook
+import numpy as np
+
+def MMD(x, y, kernel='rbf'):
+    """Empirical maximum mean discrepancy. The lower the result
+       the more evidence that distributions are the same.
+
+    Args:
+        x: first sample, distribution P
+        y: second sample, distribution Q
+        kernel: kernel type such as "multiscale" or "rbf"
+    """
+    xx, yy, zz = np.dot(x, x.T), np.dot(y, y.T), np.dot(x, y.T)
+    rxx = np.tile(np.diag(xx)[np.newaxis, :], (xx.shape[0], 1))
+    rxy = np.tile(np.diag(xx)[np.newaxis, :], (yy.shape[0], 1))
+    ryy = np.tile(np.diag(yy)[np.newaxis, :], (yy.shape[0], 1))
+    ryx = np.tile(np.diag(yy)[np.newaxis, :], (xx.shape[0], 1))
+
+    dxx = rxx.T + rxx - 2. * xx  # Used for A in (1)
+    dyy = ryy.T + ryy - 2. * yy  # Used for B in (1)
+    dxy = rxy.T + ryx - 2. * zz  # Used for C in (1)
+
+    XX, YY, XY = (np.zeros_like(xx), np.zeros_like(yy), np.zeros_like(zz))
+
+    if kernel == "multiscale":
+        bandwidth_range = [0.2, 0.5, 0.9, 1.3]
+        for a in bandwidth_range:
+            XX += a**2 * (a**2 + dxx)**-1
+            YY += a**2 * (a**2 + dyy)**-1
+            XY += a**2 * (a**2 + dxy)**-1
+
+    if kernel == "rbf":
+        bandwidth_range = [10, 15, 20, 50]
+        for a in bandwidth_range:
+            XX += np.exp(-0.5*dxx/a)
+            YY += np.exp(-0.5*dyy/a)
+            XY += np.exp(-0.5*dxy/a)
+
+    return np.mean(XX) + np.mean(YY) - 2. * np.mean(XY)
+
+
+if __name__ == "__main__":
+    from scipy.stats import multivariate_normal
+
+    m = 1000 # sample size
+    x_mean = np.zeros(2)
+    y_mean = np.zeros(2)
+    x_cov = np.eye(2) # IMPORTANT: Covariance matrices must be positive definite
+    y_cov = np.eye(2)
+
+    px = multivariate_normal(x_mean, x_cov)
+    qy = multivariate_normal(y_mean, y_cov)
+    x = multivariate_normal.rvs(x_mean, x_cov, size=m)
+    y = multivariate_normal.rvs(y_mean, y_cov, size=m)
+
+    result = MMD(x, y, kernel="rbf")
+
+    print(f"MMD result of X and Y is {result}")
+
+# %%

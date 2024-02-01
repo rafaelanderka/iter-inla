@@ -10,7 +10,7 @@ from scipy.integrate import odeint
 from sksparse.cholmod import cholesky
 from findiff import FinDiff, Coef, Identity
 from spdeinf import util
-from spdeinf.nonlinear import AbstractNonlinearINLASPDERegressor
+from spdeinf.nonlinear import SPDEDynamics, IterativeINLARegressor
 from spdeinf.distributions import LogNormal
 from functools import partial
 import matplotlib.font_manager as font_manager
@@ -115,7 +115,7 @@ obs_loc_1 = np.where(T == 10.)[0][0]
 # Set up nonlinear pendulum regressor class #
 #############################################
 
-class NonlinearPendulumINLARegressor(AbstractNonlinearINLASPDERegressor):
+class PendulumDynamics(SPDEDynamics):
     """
     The parameters of the model are, in order:
     0. b
@@ -124,7 +124,11 @@ class NonlinearPendulumINLARegressor(AbstractNonlinearINLASPDERegressor):
     3. observation noise
     """
 
-    def _get_diff_op(self, u0, params, **kwargs):
+    def __init__(self, dt) -> None:
+        super().__init__()
+        self.dt = dt
+
+    def get_diff_op(self, u0, params, **kwargs):
         """
         Construct current linearised differential operator.
         """
@@ -135,28 +139,28 @@ class NonlinearPendulumINLARegressor(AbstractNonlinearINLASPDERegressor):
         diff_op = partial_tt + Coef(b) * partial_t + Coef(c * u0_cos) * Identity()
         return diff_op
 
-    def _get_prior_precision(self, u0, params, **kwargs):
+    def get_prior_precision(self, u0, params, **kwargs):
         """
         Calculate current prior precision.
         """
-        diff_op_guess = self._get_diff_op(u0, params)
+        diff_op_guess = self.get_diff_op(u0, params)
         L = util.operator_to_matrix(diff_op_guess, u0.shape, interior_only=False)
-        prior_precision = (self.dt*self.dx / params[2]**2) * (L.T @ L)
+        prior_precision = (self.dt / params[2]**2) * (L.T @ L)
         return prior_precision
 
-    def _get_prior_mean(self, u0, params, **kwargs):
+    def get_prior_mean(self, u0, params, **kwargs):
         """
         Calculate current prior mean.
         """
         b, c, _, _ = params
         u0_cos = np.cos(u0)
         u0_sin = np.sin(u0)
-        diff_op = self._get_diff_op(u0, params)
+        diff_op = self.get_diff_op(u0, params)
         diff_op_mat = diff_op.matrix(u0.shape)
         prior_mean = spsolve(diff_op_mat, (c * (u0 * u0_cos - u0_sin)).flatten())
         return prior_mean.reshape(u0.shape)
 
-    def _get_obs_noise(self, params, **kwargs):
+    def get_obs_noise(self, params, **kwargs):
         """
         Get observation noise (standard deviation).
         """
@@ -164,17 +168,19 @@ class NonlinearPendulumINLARegressor(AbstractNonlinearINLASPDERegressor):
         return params[3]
 
     
+dynamics = PendulumDynamics(dt)
+
 ############################################
 # Fit Nonlinear Pendulum Regressor on data #
 ############################################
 max_iter = 20
 parameterisation = 'natural' # 'moment' or 'natural'
-model = NonlinearPendulumINLARegressor(u, 1, dt, param0,
-                                       mixing_coef=0.2,
-                                       param_bounds=param_bounds,
-                                       param_priors=param_priors,
-                                       sampling_evec_scales=[0.03, 0.03, 0.03, 0.03],
-                                       sampling_threshold=5)
+model = IterativeINLARegressor(u, dynamics, param0,
+                               mixing_coef=0.2,
+                               param_bounds=param_bounds,
+                               param_priors=param_priors,
+                               sampling_evec_scales=[0.03, 0.03, 0.03, 0.03],
+                               sampling_threshold=5)
 
 if just_plot is False:
     model.fit(obs_dict, obs_std=1e-1, max_iter=max_iter, parameterisation=parameterisation, animated=False, calc_std=False, calc_mnll=True)
