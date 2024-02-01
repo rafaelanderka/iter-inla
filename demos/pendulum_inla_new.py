@@ -1,14 +1,14 @@
-#%%
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy import sparse
 from scipy.sparse.linalg import spsolve
 from scipy.integrate import odeint
-from sksparse.cholmod import cholesky
 from findiff import FinDiff, Coef, Identity
+
 from spdeinf import util
-from spdeinf.nonlinear import AbstractNonlinearINLASPDERegressor
+from spdeinf.nonlinear import SPDEDynamics, IterativeINLARegressor
 from spdeinf.distributions import LogNormal
+
+np.random.seed(2)
 
 #####################################################
 # Generate data from nonlinear damped pendulum eqn. #
@@ -43,17 +43,14 @@ param_priors = [LogNormal(mu=b_0, sigma=1/tau_b), LogNormal(mu=c_0, sigma=1/tau_
                 LogNormal(mu=k_0, sigma=1/tau_k), LogNormal(mu=s_0, sigma=1/tau_s)]
 param_bounds = [(0.1, 1), (0.1, 5), (0, 1), (0, 1)]
 
-#%%
-np.random.seed(2)
-
 # Create temporal discretisation
 L_t = 25                      # Duration of simulation [s]
-dt = 0.01                     # Infinitesimal time
+dt = 0.05                     # Infinitesimal time
 N_t = int(L_t / dt) + 1       # Points number of the temporal mesh
 T = np.linspace(0, L_t, N_t)  # Temporal array
 T = np.around(T, decimals=1)
 
-# Define the initial condition    
+# Define the initial condition
 u0 = [0.75 * np.pi, 0.]
 
 # Define corresponding system of ODEs
@@ -77,12 +74,11 @@ obs_idxs = np.array(list(obs_dict.keys()), dtype=int)
 obs_vals = np.array(list(obs_dict.values()))
 print("Number of observations:", obs_idxs.shape[0])
 
+######################################
+# Define nonlinear pendulum dynamics #
+######################################
 
-#############################################
-# Set up nonlinear pendulum regressor class #
-#############################################
-
-class NonlinearPendulumINLARegressor(AbstractNonlinearINLASPDERegressor):
+class PendulumDynamics(SPDEDynamics):
     """
     The parameters of the model are, in order:
     0. b
@@ -91,7 +87,11 @@ class NonlinearPendulumINLARegressor(AbstractNonlinearINLASPDERegressor):
     3. observation noise
     """
 
-    def _get_diff_op(self, u0, params, **kwargs):
+    def __init__(self, dt) -> None:
+        super().__init__()
+        self.dt = dt
+
+    def get_diff_op(self, u0, params, **kwargs):
         """
         Construct current linearised differential operator.
         """
@@ -102,75 +102,54 @@ class NonlinearPendulumINLARegressor(AbstractNonlinearINLASPDERegressor):
         diff_op = partial_tt + Coef(b) * partial_t + Coef(c * u0_cos) * Identity()
         return diff_op
 
-    def _get_prior_precision(self, u0, params, **kwargs):
+    def get_prior_precision(self, u0, params, **kwargs):
         """
         Calculate current prior precision.
         """
-        diff_op_guess = self._get_diff_op(u0, params)
+        diff_op_guess = self.get_diff_op(u0, params)
         L = util.operator_to_matrix(diff_op_guess, u0.shape, interior_only=False)
         prior_precision = (self.dt / params[2]**2) * (L.T @ L)
         return prior_precision
 
-    def _get_prior_mean(self, u0, params, **kwargs):
+    def get_prior_mean(self, u0, params, **kwargs):
         """
         Calculate current prior mean.
         """
-        b, c, _, _ = params
+        _, c, _, _ = params
         u0_cos = np.cos(u0)
         u0_sin = np.sin(u0)
-        diff_op = self._get_diff_op(u0, params)
+        diff_op = self.get_diff_op(u0, params)
         diff_op_mat = diff_op.matrix(u0.shape)
         prior_mean = spsolve(diff_op_mat, (c * (u0 * u0_cos - u0_sin)).flatten())
         return prior_mean.reshape(u0.shape)
 
-    def _get_obs_noise(self, params, **kwargs):
+    def get_obs_noise(self, params, **kwargs):
         """
         Get observation noise (standard deviation).
         """
-        # return self.obs_std
         return params[3]
 
-    
-############################################
-# Fit Nonlinear Pendulum Regressor on data #
-############################################
+dynamics = PendulumDynamics(dt)
+
+#################################
+# Fit model with iterative INLA #
+#################################
+
 max_iter = 10
 parameterisation = 'natural' # 'moment' or 'natural'
-model = NonlinearPendulumINLARegressor(u, 1, dt, param0,
-                                       mixing_coef=0.5,
-                                       param_bounds=param_bounds,
-                                       param_priors=param_priors,
-                                       sampling_evec_scales=[0.1, 0.1, 0.1, 0.02],
-                                       sampling_threshold=1)
+model = IterativeINLARegressor(u, dynamics, param0,
+                               mixing_coef=0.5,
+                               param_bounds=param_bounds,
+                               param_priors=param_priors,
+                               sampling_evec_scales=[0.1, 0.1, 0.1, 0.02],
+                               sampling_threshold=1)
 
 model.fit(obs_dict, obs_std, max_iter=max_iter, parameterisation=parameterisation, animated=False, calc_std=False, calc_mnll=True)
 iter_count = len(model.mse_hist)
 
-
 ############
 # Plot fit #
 ############
-# plt.figure(figsize=(3,3))
-# plt.plot(T, u.squeeze(), "b", label="Ground truth")
-# plt.plot(T, model.posterior_mean.squeeze(), "k", label="Posterior mean")
-# plt.plot(T, model.posterior_mean.squeeze() + model.posterior_std.squeeze(), "--", color="grey", label="Posterior std. dev.")
-# plt.plot(T, model.posterior_mean.squeeze() - model.posterior_std.squeeze(), "--", color="grey")
-# plt.axvline(dt * obs_loc_1, color='grey', ls=':')
-# plt.scatter(dt * obs_idxs[:,1], obs_vals, c="r", marker="x", label="Observations")
-# plt.xlabel("$t$")
-# plt.ylabel("$u$")
-# plt.tight_layout()
-# plt.savefig("figures/pendulum/pendulum_spde_inla_new_fit.pdf")
-# plt.show()
-
-# # Save animation
-# print("Saving animation...")
-# model.save_animation("figures/pendulum/pendulum_inla_new_iter_animation.gif", fps=3)
-
-
-# %%
-# Plot credible intervals
-from spdeinf.util import cred_wt
 
 num_samples = 5000
 final_dist = model.marginal_dist_u_y
@@ -182,20 +161,19 @@ creds = [50, 60, 70, 80, 90, 95]
 
 list_of_intervals = []
 for i in range(samples.shape[1]):
-    intervals = cred_wt(samples[:,i], weights, creds)
+    intervals = util.cred_wt(samples[:,i], weights, creds)
     list_of_intervals.append(intervals)
 
-#%%
 plt.figure(figsize=(4,3))
 for cred in creds:
     lower_lims = [interval[cred][0] for interval in list_of_intervals]
     upper_lims = [interval[cred][1] for interval in list_of_intervals]
-    plt.fill_between(T * dt, lower_lims, upper_lims, color='steelblue', alpha=1-cred/120, edgecolor='None')
+    plt.fill_between(T, lower_lims, upper_lims, color='steelblue', alpha=1-cred/120, edgecolor='None')
 
-plt.plot(T * dt, u[0], c='C1', linewidth=4)
-plt.plot(T * dt, model.u0[0], c='k', linestyle='--', linewidth=2)
-# plt.axvline(obs_loc_1 * dt, color='grey', ls=':', linewidth=2) 
-# plt.scatter(obs_idxs[:,1] * dt, obs_vals, c='k', zorder=10)
+plt.plot(T, u[0], c='C1', linewidth=4)
+plt.plot(T, model.u0[0], c='k', linestyle='--', linewidth=2)
+plt.axvline(obs_loc_1 * dt, color='grey', ls=':', linewidth=2) 
+plt.scatter(obs_idxs[:,1] * dt, obs_vals, c='k', zorder=10)
 plt.xlabel("$t$", fontsize=16)
 plt.ylabel("$u$", fontsize=16)
 plt.xticks(fontsize=12)
