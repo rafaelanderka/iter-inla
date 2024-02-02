@@ -78,13 +78,17 @@ def _fit_gmrf(ground_truth, obs_dict, obs_std, prior_mean, prior_precision, calc
     if return_prior_precision:
         res['prior_precision'] = prior_precision
 
-    # Optionally return posterior precision and shift
+    # Optionally return posterior precision
     if return_posterior_precision:
         res['posterior_precision'] = posterior_precision
         res['posterior_precision_chol'] = posterior_precision_cholesky
-    
+
+    # Optionally return posterior shift
     if return_posterior_shift:
-        posterior_shift = posterior_precision @ prior_mean.squeeze() + posterior_shift_data_term
+        if isinstance(prior_mean, numbers.Number):
+            posterior_shift = posterior_precision * prior_mean + posterior_shift_data_term
+        else:
+            posterior_shift = posterior_precision @ prior_mean.flatten() + posterior_shift_data_term
         res['posterior_shift'] = posterior_shift
 
     return res
