@@ -10,16 +10,15 @@ setup(
     license='BSD 2-clause',
     packages=['spdeinf'],
     install_requires=[
-                    #   'findiff @ git+ssh://git@github.com:rafaelanderka/findiff.git',
-                    #   'scikit-sparse @ git+ssh://git@github.com:rafaelanderka/scikit-sparse.git',
                       'scikit-learn',
                       'scipy',
                       'numpy',
                       'matplotlib',
                       'tqdm',
+                      'sdeint',
                       ],
     classifiers=[
-        'Development Status :: 1 - Planning',
+        'Development Status :: 4 - Beta',
         'Intended Audience :: Science/Research',
         'License :: OSI Approved :: BSD License',  
         'Operating System :: POSIX :: Linux',        
