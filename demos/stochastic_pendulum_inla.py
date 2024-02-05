@@ -1,31 +1,24 @@
-#%%
 import os
 import pickle
+from functools import partial
 import sdeint
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy import sparse
+import matplotlib.font_manager as font_manager
 from scipy.sparse.linalg import spsolve
-from scipy.integrate import odeint 
-from sksparse.cholmod import cholesky
 from findiff import FinDiff, Coef, Identity
 from spdeinf import util
 from spdeinf.nonlinear import SPDEDynamics, IterativeINLARegressor
 from spdeinf.distributions import LogNormal
-from functools import partial
-import matplotlib.font_manager as font_manager
 
-package_dir = '/Users/sotakao/Dropbox/Mac/Documents/spde-inference'
-os.chdir(package_dir)
-
-#####################################################
-# Generate data from nonlinear damped pendulum eqn. #
-#####################################################
+######################################################
+# Generate data from stochastic damped pendulum eqn. #
+######################################################
 
 generate_data = True # Flag to generate observations or load externally
 just_plot = False # Flag to train from scratch or to load saved result for plotting
+compute_mmd = False # Flag to compute MMD
 
-## Generate data from stochastic nonlinear damped pendulum eqn.
 # Define parameters of damped pendulum
 b = 0.3
 c = 1.
@@ -60,7 +53,6 @@ L_t = 25                     # Duration of simulation [s]
 dt = 0.01                      # Infinitesimal time
 N_t = int(L_t / dt) + 1       # Points number of the temporal mesh
 T = np.linspace(0, L_t, N_t)  # Temporal array
-# T = np.around(T, decimals=1)
 
 if generate_data:
     # Define the initial condition    
@@ -98,7 +90,7 @@ if generate_data:
 else:
     # Load pre-generated data
     cwd = os.getcwd()
-    fname = 'demos/pf_baselines/stoch_pend_b_0.3_c_1_sigmaX_0.2_sigmaY_0.1.npz'
+    fname = 'data/pf_baselines/stoch_pend_b_0.3_c_1_sigmaX_0.2_sigmaY_0.1.npz'
 
     data = np.load(os.path.join(cwd, fname))
     u = data['x'][:,0].reshape(1, -1)
@@ -112,8 +104,6 @@ else:
     T = np.around(T, decimals=1)
     obs_loc_1 = np.where(T == 10.)[0][0]
 
-
-#%%
 #############################################
 # Set up nonlinear pendulum regressor class #
 #############################################
@@ -146,7 +136,7 @@ class PendulumDynamics(SPDEDynamics):
         """
         Calculate current prior precision.
         """
-        diff_op_guess = self.get_diff_op(u0, params)
+        diff_op_guess = self.get_diff_op(u0, params, **kwargs)
         L = util.operator_to_matrix(diff_op_guess, u0.shape, interior_only=False)
         prior_precision = (self.dt / params[2]**2) * (L.T @ L)
         return prior_precision
@@ -158,7 +148,7 @@ class PendulumDynamics(SPDEDynamics):
         b, c, _, _ = params
         u0_cos = np.cos(u0)
         u0_sin = np.sin(u0)
-        diff_op = self.get_diff_op(u0, params)
+        diff_op = self.get_diff_op(u0, params, **kwargs)
         diff_op_mat = diff_op.matrix(u0.shape)
         prior_mean = spsolve(diff_op_mat, (c * (u0 * u0_cos - u0_sin)).flatten())
         return prior_mean.reshape(u0.shape)
@@ -167,15 +157,14 @@ class PendulumDynamics(SPDEDynamics):
         """
         Get observation noise (standard deviation).
         """
-        # return self.obs_std
         return params[3]
 
-    
 dynamics = PendulumDynamics(dt)
 
 ############################################
 # Fit Nonlinear Pendulum Regressor on data #
 ############################################
+
 max_iter = 20
 parameterisation = 'natural' # 'moment' or 'natural'
 model = IterativeINLARegressor(u, dynamics, param0,
@@ -186,8 +175,7 @@ model = IterativeINLARegressor(u, dynamics, param0,
                                sampling_threshold=5)
 
 if just_plot is False:
-    model.fit(obs_dict, obs_std=1e-1, max_iter=max_iter, parameterisation=parameterisation, animated=False, calc_std=False, calc_mnll=True)
-    iter_count = len(model.mse_hist)
+    model.fit(obs_dict, max_iter=max_iter, parameterisation=parameterisation, animated=False, calc_std=False, calc_mnll=True)
 
     # Save result
     with open('results/stoch_pendulum_iterated_inla.pickle', 'wb') as f:
@@ -196,10 +184,10 @@ else:
     with open('results/stoch_pendulum_iterated_inla.pickle', "rb") as f:
         model = pickle.load(f)
 
-#%%
 ############
 # Plot fit #
 ############
+
 plt.figure(figsize=(3,3))
 plt.plot(T, u.squeeze(), "b", label="Ground truth")
 plt.plot(T, model.posterior_mean.squeeze(), "k", label="Posterior mean")
@@ -210,19 +198,10 @@ plt.scatter(dt * idxs, obs_vals, c="r", marker="x", label="Observations")
 plt.xlabel("$t$")
 plt.ylabel("$u$")
 plt.tight_layout()
-# plt.savefig("figures/pendulum/pendulum_spde_inla_new_fit.pdf")
 plt.show()
 
-# # Save animation
-# print("Saving animation...")
-# model.save_animation("figures/pendulum/pendulum_inla_new_iter_animation.gif", fps=3)
-
-
-# %%
-from spdeinf.util import cred_wt
-
 # # Compute MMD score
-# fname = 'demos/pf_baselines/state_posterior_samples_3.npy'
+# fname = 'data/pf_baselines/state_posterior_samples_3.npy'
 # posterior_samples = np.load(fname) # Get state samples from the particle smoother
 # posterior_samples = posterior_samples[:,:,0]
 # N = posterior_samples.shape[1] # Number of samples
@@ -241,7 +220,6 @@ samples = np.reshape(samples, (num_samples, -1))
 # x = posterior_samples.T
 # y = samples
 # mmd = util.MMD(x, y)
-
 # print(f"MMD = {mmd}")
 
 weights = np.ones(num_samples) / num_samples
@@ -249,10 +227,9 @@ creds = [50, 60, 70, 80, 90, 95]
 
 list_of_intervals = []
 for i in range(samples.shape[1]):
-    intervals = cred_wt(samples[:,i], weights, creds)
+    intervals = util.cred_wt(samples[:,i], weights, creds)
     list_of_intervals.append(intervals)
 
-#%%
 plt.figure(figsize=(4,3))
 for cred in creds:
     lower_lims = [interval[cred][0] for interval in list_of_intervals]
@@ -272,9 +249,5 @@ plt.ylabel("$u$", fontsize=12)
 plt.xticks(fontsize=12)
 plt.yticks(fontsize=12)
 plt.tight_layout()
-package_dir = '/Users/sotakao/Dropbox/Mac/Documents/spde-inference'
-plt.savefig(os.path.join(package_dir, "figures/pendulum/stoch_pendulum_spde_inla_fit.pdf"))
+plt.savefig("figures/pendulum/stoch_pendulum_sode_inla_fit.pdf")
 plt.show()
-
-
-# %%

@@ -3,15 +3,24 @@ import matplotlib.pyplot as plt
 from scipy.io import loadmat
 from scipy.sparse.linalg import spsolve
 from findiff import FinDiff, Coef, Identity
-from sklearn.gaussian_process import GaussianProcessRegressor
-from sklearn.gaussian_process.kernels import RBF, WhiteKernel
 
-from spdeinf import nonlinear, plotting, util
+from spdeinf import util
+from spdeinf.nonlinear import SPDEDynamics, IterativeRegressor
 
 # Set seed
 np.random.seed(0)
 
-# Load Korteweg-de Vries eq. data from PINNs examples
+#########################################
+# Load data from Korteweg-de Vries eqn. #
+#########################################
+
+# Define parameters of the Korteweg-de Vries eqn. and model
+l1 = 1
+l2 = 0.0025
+obs_std = 1e-3
+params = np.array([l1, l2, obs_std])
+
+# Load Korteweg-de Vries eqn. data from PINNs examples
 data = loadmat("data/PINNs/KdV.mat")
 uu = data['uu'][::4,::4]
 xx = data['x'].squeeze()[::4]
@@ -22,12 +31,7 @@ dx = xx[1] - xx[0]
 dt = tt[1] - tt[0]
 shape = (N_x, N_t)
 
-# Define Korteweg-de Vries eq. parameters
-l1 = 1
-l2 = 0.0025
-
 # Sample observations
-obs_std = 1e-3
 obs_count_1 = 20
 obs_count_2 = 20
 obs_loc_1 = np.where(tt == 0.2)[0][0]
@@ -39,54 +43,103 @@ obs_vals = np.array(list(obs_dict.values()), dtype=float)
 obs_locs = np.array([[xx[i], tt[j]] for i, j in obs_idxs])
 print("Number of observations:", obs_idxs.shape[0])
 
-################################
-# Diff. op. and mean generator #
-################################
+##########################################
+# Define Korteweg-de Vries eqn. dynamics #
+##########################################
 
-def get_diff_op(u0, dx, dt, l1, l2):
+class KdVDynamics(SPDEDynamics):
     """
-    Constructs current linearised differential operator.
+    The parameters of the model are, in order:
+    0. l1
+    1. l2
+    2. observation noise
     """
-    partial_t = FinDiff(1, dt, 1, acc=2)
-    partial_x = FinDiff(0, dx, 1, acc=2, periodic=True)
-    partial_xxx = FinDiff(0, dx, 3, acc=2, periodic=True)
-    u0_x = partial_x(u0)
-    diff_op = partial_t + Coef(l1 * u0) * partial_x + Coef(l1 * u0_x) * Identity() + Coef(l2) * partial_xxx
-    return diff_op
 
-def get_prior_mean(u0, diff_op_gen, l1):
-    """
-    Calculates current prior mean.
-    """
-    partial_x = FinDiff(0, dx, 1, acc=2, periodic=True)
-    u0_x = partial_x(u0)
-    diff_op = diff_op_gen(u0)
-    diff_op_mat = diff_op.matrix(u0.shape)
-    prior_mean = spsolve(diff_op_mat, (l1 * u0 * u0_x).flatten())
-    return prior_mean.reshape(u0.shape)
+    def __init__(self, dx, dt) -> None:
+        super().__init__()
+        self.dx = dx
+        self.dt = dt
 
-diff_op_gen = lambda u: get_diff_op(u, dx, dt, l1, l2)
-prior_mean_gen = lambda u: get_prior_mean(u, diff_op_gen, l1)
+    def get_diff_op(self, u0, params, **kwargs):
+        """
+        Construct current linearised differential operator.
+        """
+        l1, l2, _ = params
+        partial_t = FinDiff(1, self.dt, 1, acc=2)
+        partial_x = FinDiff(0, self.dx, 1, acc=2, periodic=True)
+        partial_xxx = FinDiff(0, self.dx, 3, acc=2, periodic=True)
+        u0_x = partial_x(u0)
+        diff_op = partial_t + Coef(l1 * u0) * partial_x + Coef(l1 * u0_x) * Identity() + Coef(l2) * partial_xxx
+        return diff_op
 
+    def get_prior_precision(self, u0, params, **kwargs):
+        """
+        Calculate current prior precision.
+        """
+        diff_op_guess = self.get_diff_op(u0, params, **kwargs)
+        L = util.operator_to_matrix(diff_op_guess, u0.shape, interior_only=False)
+        # prior_precision = (self.dt * self.dx / params[2]**2) * (L.T @ L)
+        # prior_precision = self.dt * self.dx * (L.T @ L)
+        prior_precision = L.T @ L
+        return prior_precision
 
-## Fit GP with non-linear SPDE prior from Korteweg-de Vries equation
+    def get_prior_mean(self, u0, params, **kwargs):
+        """
+        Calculate current prior mean.
+        """
+        l1, _, _ = params
 
-# Perform iterative optimisation
-max_iter = 10
-model = nonlinear.NonlinearSPDERegressor(uu, dx, dt, diff_op_gen, prior_mean_gen, mixing_coef=1.)
-model.fit(obs_dict, obs_std, max_iter=max_iter, animated=True, calc_std=True)
-iter_count = len(model.mse_hist)
+        # Construct linearisation remainder term
+        partial_x = FinDiff(0, self.dx, 1, acc=2, periodic=True)
+        u0_x = partial_x(u0)
+        remainder = l1 * u0 * u0_x
 
-# Plot convergence history
-plt.plot(np.arange(1, iter_count + 1), model.mse_hist, label="Linearisation via expansion")
-plt.yscale('log')
-plt.xlabel("Iteration")
-plt.ylabel("MSE")
-plt.xticks(np.arange(2, iter_count + 1, 2))
-plt.legend()
-plt.savefig("figures/kdv/mse_conv.png", dpi=200)
+        # Construct diff. op.
+        diff_op = self.get_diff_op(u0, params, **kwargs)
+        L = diff_op.matrix(u0.shape)
+
+        # Compute prior mean
+        prior_mean = spsolve(L, remainder.flatten())
+        # prior_mean = spsolve(L.T @ L, L.T @ remainder.flatten())
+        return prior_mean.reshape(u0.shape)
+
+    def get_obs_noise(self, params, **kwargs):
+        """
+        Get observation noise (standard deviation).
+        """
+        return params[2]
+
+dynamics = KdVDynamics(dx, dt)
+
+##########################################
+# Fit model with iterative linearistaion #
+##########################################
+
+max_iter = 20
+model = IterativeRegressor(uu, dynamics, mixing_coef=0.1)
+model.fit(obs_dict, params, max_iter=max_iter, animated=True, calc_std=True, calc_mnll=True)
+
+############
+# Plot fit #
+############
+
+plt.figure(figsize=(3,3))
+im_mean = plt.imshow(model.posterior_mean, extent=(0, 1, -1, 1), origin="lower", aspect=.5, rasterized=True, cmap="gnuplot2")
+plt.xlabel("$t$")
+plt.ylabel("$x$", labelpad=0)
+plt.scatter(dt * obs_idxs[:,1], dx * obs_idxs[:,0] - 1, c="white", s=12, marker="o", alpha=1.0, label="Observations")
+plt.gca().yaxis.set_major_locator(plt.MultipleLocator(0.5))
+plt.colorbar(im_mean)
+plt.tight_layout(pad=0)
+plt.savefig("figures/kdv/kdv_spde.pdf", transparent=True)
+
+plt.figure(figsize=(3,3))
+im_std = plt.imshow(model.posterior_std, extent=(0, 1, -1, 1), origin="lower", aspect=.5, rasterized=True, cmap="YlGnBu_r")
+plt.xlabel("$t$")
+plt.ylabel("$x$", labelpad=0)
+plt.scatter(dt * obs_idxs[:,1], dx * obs_idxs[:,0] - 1, c="grey", s=12, marker="o", alpha=1.0, label="Observations")
+plt.gca().yaxis.set_major_locator(plt.MultipleLocator(0.5))
+plt.colorbar(im_std)
+plt.tight_layout(pad=0)
+plt.savefig("figures/kdv/kdv_spde_std.pdf", transparent=True)
 plt.show()
-
-# Save animation
-print("Saving animation...")
-model.save_animation("figures/kdv/kdv_iter_animation.gif", fps=5)

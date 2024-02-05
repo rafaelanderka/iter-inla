@@ -12,13 +12,13 @@ W_amp = 0
 
 # Create spatial discretisation
 x_max = 1                       # Range of spatial domain
-dx = 0.01                        # Spatial delta
+dx = 0.01                       # Spatial delta
 N_x = int(x_max / dx) + 1       # Number of points in spatial discretisation
 xx = np.linspace(0, x_max, N_x) # Spatial array
 
 # Create temporal discretisation
 t_max = 1                       # Range of temporal domain
-dt = 0.01                        # Temporal delta
+dt = 0.01                       # Temporal delta
 N_t = int(t_max / dt) + 1       # Number of points in temporal discretisation
 tt = np.linspace(0, t_max, N_t) # Temporal array
 shape = (N_x, N_t)
@@ -58,10 +58,10 @@ obs_idxs = np.array(list(obs_dict.keys()), dtype=int)
 
 # Fit with SPDE prior
 diff_op_guess = diff_op_t - alpha * diff_op_xx
-res = linear.fit_spde_gmrf(u, obs_dict, obs_std, diff_op_guess, prior_mean=0, calc_std=True)
+res = linear.fit_spde_gmrf(u, obs_dict, obs_std, diff_op_guess, prior_mean=0, calc_std=True, return_posterior_shift=True)
 posterior_mean_pde = res['posterior_mean']
 posterior_std_pde = res['posterior_std']
-print(f'SPDE prior MSE={metrics.mse(u, posterior_mean_pde)}')
+print(f'MSE={metrics.mse(u, posterior_mean_pde)}')
 
 # Plot results
 plot_kwargs = {
@@ -72,4 +72,4 @@ plot_kwargs = {
         'diff_vmin': -0.3,
         'diff_vmax': 0.8,
         }
-plotting.plot_gp_2d(u, posterior_mean_pde, posterior_std_pde, obs_idxs, 'figures/heat_eqn/heat_eqn_test_pde.png', **plot_kwargs)
+plotting.plot_gp_2d(u, posterior_mean_pde, posterior_std_pde, obs_idxs, 'figures/heat_eqn/heat_eqn_spde.png', **plot_kwargs)

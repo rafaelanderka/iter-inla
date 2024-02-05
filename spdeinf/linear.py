@@ -2,14 +2,13 @@ import numbers
 import numpy as np
 from sksparse.cholmod import cholesky
 from scipy import sparse, stats
-from sklearn.gaussian_process import GaussianProcessRegressor
-from sklearn.gaussian_process.kernels import RBF
 
 from . import util
 
 def fit_spde_gmrf(u, obs_dict, obs_std, diff_op, prior_mean=0, c=1, calc_std=False, calc_mnll=False,
                 include_initial_cond=False, include_terminal_cond=False, include_boundary_cond=False,
-                regularisation=0, return_prior_precision=False, return_posterior_precision=False):
+                regularisation=0, return_prior_precision=False, return_posterior_precision=False,
+                return_posterior_shift=False):
     # Construct precision matrix corresponding to the linear differential operator
     mat = util.operator_to_matrix(diff_op, u.shape, interior_only=False)
     prior_precision = c * (mat.T @ mat)
@@ -17,7 +16,8 @@ def fit_spde_gmrf(u, obs_dict, obs_std, diff_op, prior_mean=0, c=1, calc_std=Fal
     return _fit_gmrf(u, obs_dict, obs_std, prior_mean, prior_precision, calc_std=calc_std, calc_mnll=calc_mnll,
                     include_initial_cond=include_initial_cond, include_terminal_cond=include_terminal_cond,
                     include_boundary_cond=include_boundary_cond, regularisation=regularisation,
-                    return_prior_precision=return_prior_precision, return_posterior_precision=return_posterior_precision)
+                    return_prior_precision=return_prior_precision, return_posterior_precision=return_posterior_precision,
+                    return_posterior_shift=return_posterior_shift)
 
 def _fit_gmrf(ground_truth, obs_dict, obs_std, prior_mean, prior_precision, calc_std=False, calc_mnll=False,
             include_initial_cond=False, include_terminal_cond=False, include_boundary_cond=False,
@@ -70,7 +70,6 @@ def _fit_gmrf(ground_truth, obs_dict, obs_std, prior_mean, prior_precision, calc
 
     # Optionally compute negative log predictive likelihood 
     if calc_mnll:
-        residuals = ground_truth - posterior_mean
         mnll = -stats.norm.logpdf(ground_truth.flatten(), loc=posterior_mean.flatten(), scale=posterior_std.flatten()).mean()
         res['mnll'] = mnll
 

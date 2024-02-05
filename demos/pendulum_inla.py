@@ -8,7 +8,8 @@ from spdeinf import util
 from spdeinf.nonlinear import SPDEDynamics, IterativeINLARegressor
 from spdeinf.distributions import LogNormal
 
-np.random.seed(2)
+# Set seed
+np.random.seed(0)
 
 #####################################################
 # Generate data from nonlinear damped pendulum eqn. #
@@ -18,6 +19,7 @@ np.random.seed(2)
 b = 0.3
 c = 1.
 params_true = np.array([b, c])
+print("True parameters:", params_true)
 
 # Define parameters of the model parameter priors
 tau_b = 2
@@ -45,7 +47,7 @@ param_bounds = [(0.1, 1), (0.1, 5), (0, 1), (0, 1)]
 
 # Create temporal discretisation
 L_t = 25                      # Duration of simulation [s]
-dt = 0.01                     # Infinitesimal time
+dt = 0.05                     # Infinitesimal time
 N_t = int(L_t / dt) + 1       # Points number of the temporal mesh
 T = np.linspace(0, L_t, N_t)  # Temporal array
 # T = np.around(T, decimals=1)
@@ -106,7 +108,7 @@ class PendulumDynamics(SPDEDynamics):
         """
         Calculate current prior precision.
         """
-        diff_op_guess = self.get_diff_op(u0, params)
+        diff_op_guess = self.get_diff_op(u0, params, **kwargs)
         L = util.operator_to_matrix(diff_op_guess, u0.shape, interior_only=False)
         prior_precision = (self.dt / params[2]**2) * (L.T @ L)
         return prior_precision
@@ -118,7 +120,7 @@ class PendulumDynamics(SPDEDynamics):
         _, c, _, _ = params
         u0_cos = np.cos(u0)
         u0_sin = np.sin(u0)
-        diff_op = self.get_diff_op(u0, params)
+        diff_op = self.get_diff_op(u0, params, **kwargs)
         diff_op_mat = diff_op.matrix(u0.shape)
         prior_mean = spsolve(diff_op_mat, (c * (u0 * u0_cos - u0_sin)).flatten())
         return prior_mean.reshape(u0.shape)
@@ -144,8 +146,7 @@ model = IterativeINLARegressor(u, dynamics, param0,
                                sampling_evec_scales=[0.05, 0.05, 0.05, 0.05],
                                sampling_threshold=2.5)
 
-model.fit(obs_dict, obs_std, max_iter=max_iter, parameterisation=parameterisation, animated=False, calc_std=False, calc_mnll=True)
-iter_count = len(model.mse_hist)
+model.fit(obs_dict, max_iter=max_iter, parameterisation=parameterisation, animated=False, calc_std=False, calc_mnll=True)
 
 ############
 # Plot fit #

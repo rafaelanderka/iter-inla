@@ -41,24 +41,19 @@ class SPDEDynamics(ABC):
         """
         Get the observation noise (standard deviation).
         """
-        return self.obs_std # By default, return self.obs_std if observation noise is fixed. Customise if learned.
+        return NotImplementedError
 
 
 class IterativeRegressor(object):
-    def __init__(self, u, dx, dt, diff_op_generator, prior_mean_generator, mixing_coef=1.) -> None:
+    def __init__(self, u, dynamics, mixing_coef=1.) -> None:
         self.u = u
-        self.dx = dx
-        self.dt = dt
-        self.dV = self.dx * self.dt
-        self.diff_op_generator = diff_op_generator
-        self.prior_mean_generator = prior_mean_generator
+        self.dynamics = dynamics
         self.mixing_coef = mixing_coef
         self.persistance_coef = 1. - self.mixing_coef
         self.shape = self.u.shape
 
         # Data to fit
         self.obs_dict = None
-        self.obs_std = None
 
         # Optimiser state
         self.u0 = np.zeros_like(self.u)
@@ -83,22 +78,17 @@ class IterativeRegressor(object):
         self.posterior_std = None
         self.posterior_std_hist = []
 
-    def update(self, calc_std=False, calc_mnll=False, tol=1e-3):
-        # Use current u0 to generate new approximate linear diff. operator
-        diff_op_guess = self.diff_op_generator(self.u0)
-
-        # Use current u0 to generate new prior mean
-        self.prior_mean = self.prior_mean_generator(self.u0)
+    def update(self, calc_std=False, calc_mnll=False, **kwargs):
+        # Get current prior mean, prior precision and observation noise
+        self.prior_mean = self.dynamics.get_prior_mean(self.u0, self.params, **kwargs)
         self.prior_mean_hist.append(self.prior_mean)
+        prior_precision = self.dynamics.get_prior_precision(self.u0, self.params, **kwargs)
+        obs_noise = self.dynamics.get_obs_noise(self.params, **kwargs)
 
-        # Construct precision matrix corresponding to the linear differential operator
-        L = util.operator_to_matrix(diff_op_guess, self.shape, interior_only=False)
-        prior_precision = L.T @ L
-
-        ## Fit corresponding GMRF
+        ## Fit GMRF around current linearisation point
         # Get "data term" of posterior
         try:
-            res = linear._fit_gmrf(self.u, self.obs_dict, self.obs_std, self.prior_mean, prior_precision,
+            res = linear._fit_gmrf(self.u, self.obs_dict, obs_noise, self.prior_mean, prior_precision,
                                  calc_std=calc_std, calc_mnll=calc_mnll)
         except CholmodNotPositiveDefiniteError:
             print("Posterior precision not positive definite")
@@ -129,10 +119,10 @@ class IterativeRegressor(object):
             self.mnll = res['mnll']
             self.mnll_hist.append(self.mnll)
 
-    def fit(self, obs_dict, obs_std, max_iter, animated=False, calc_std=False, calc_mnll=False):
+    def fit(self, obs_dict, params, max_iter, animated=False, calc_std=False, calc_mnll=False, **kwargs):
         self.preempt_requested = False
         self.obs_dict = obs_dict
-        self.obs_std = obs_std
+        self.params = params
         calc_std = calc_std or animated
 
         # Initialise figure
@@ -150,7 +140,7 @@ class IterativeRegressor(object):
             is_final_iteration = i == max_iter - 1
             calc_std = calc_std or is_final_iteration
             calc_mnll = calc_mnll or is_final_iteration
-            self.update(calc_std=calc_std, calc_mnll=calc_mnll)
+            self.update(calc_std=calc_std, calc_mnll=calc_mnll, **kwargs)
             if calc_mnll:
                 print(f'iter={i+1:d}, RMSE={self.rmse}, MNLL={self.mnll}')
             else:
@@ -285,7 +275,6 @@ class IterativeINLARegressor(object):
         self.obs_dict = None
         self.obs_idxs_flat = None
         self.obs_count = 0
-        self.obs_std = None
 
         # Optimiser state
         self.u0 = np.zeros_like(self.u)
@@ -384,7 +373,7 @@ class IterativeINLARegressor(object):
         res = linear._fit_gmrf(self.u, obs_dict, obs_noise, prior_mean, prior_precision, calc_std=return_conditional_params,
                             include_initial_cond=False, return_posterior_precision=True, return_posterior_shift=True, regularisation=1e-5)
 
-        # Define prior and full condtional params
+        # Define prior and full conditional params
         mu_u = prior_mean
         Q_u = prior_precision
         mu_uy = res['posterior_mean']
@@ -488,7 +477,7 @@ class IterativeINLARegressor(object):
         self.u0 = self.persistance_coef * self.u0 + self.mixing_coef * self.posterior_mean
         self.u0_hist.append(self.u0.copy())
 
-    def fit(self, obs_dict, obs_std, max_iter, parameterisation='natural', animated=False, calc_std=False, calc_mnll=False, **kwargs):
+    def fit(self, obs_dict, max_iter, parameterisation='natural', animated=False, calc_std=False, calc_mnll=False, **kwargs):
         """
         Fit nonlinear SPDE model on data.
 
@@ -496,8 +485,6 @@ class IterativeINLARegressor(object):
         ----------
         obs_dict: dict
             Dictionary of observations.
-        obs_std: float or None
-            Standard deviation of noise if available.
         max_iter: int
             Maximum number of iterations
         parameterisation: 'moment' or 'natural'
@@ -522,7 +509,6 @@ class IterativeINLARegressor(object):
         self.preempt_requested = False
         self.obs_dict = obs_dict
         self.obs_count = len(obs_dict)
-        self.obs_std = obs_std
         calc_std = calc_std or animated
 
         # Initialise figure

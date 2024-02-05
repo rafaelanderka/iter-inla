@@ -1,21 +1,23 @@
-import sys
 import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
-from mpl_toolkits.axes_grid1 import make_axes_locatable
-from scipy.sparse import identity
 from scipy.sparse.linalg import spsolve
 from scipy.integrate import odeint
 from findiff import FinDiff, Coef, Identity
-from sksparse.cholmod import cholesky
 
-from spdeinf import nonlinear, linear, plotting, util, metrics
+from spdeinf import util
+from spdeinf.nonlinear import SPDEDynamics, IterativeRegressor
 
-## Generate data from Burger's equation
+# Set seed
 np.random.seed(0)
 
-# Define parameters of Burgers' equation
+####################################
+# Generate data from Burgers' eqn. #
+####################################
+
+# Define parameters of Burgers' equation and model
 nu = 0.01 # Kinematic viscosity coefficient
+obs_std = 1e-9 # Observation noise
+params = np.array([nu, obs_std])
 
 # Create spatial discretisation
 L_x = 1                      # Range of spatial domain
@@ -29,7 +31,7 @@ dt = 0.01                     # Temporal delta
 N_t = int(L_t / dt) + 1       # Number of points in temporal discretisation
 tt = np.linspace(0, L_t, N_t)  # Temporal array
 
-# Define wave number discretization
+# Define wave number discretisation
 k = 2 * np.pi * np.fft.fftfreq(N_x, d=dx)
 
 # Define the initial condition    
@@ -57,7 +59,6 @@ def burgers_odes(u, t, k, nu):
 u = odeint(burgers_odes, u0, tt, args=(k, nu,), mxstep=5000).T
 
 # Sample observations
-obs_std = 1e-9
 obs_count_1 = 128
 obs_count_2 = 0
 obs_loc_1 = np.where(tt == 0.1)[0][0]
@@ -68,77 +69,97 @@ obs_idxs = np.array(list(obs_dict.keys()), dtype=int)
 obs_vals = np.array(list(obs_dict.values()))
 print("Number of observations:", obs_idxs.shape[0])
 
-################################
-# Diff. op. and mean generator #
-################################
+#################################
+# Define Burgers' eqn. dynamics #
+#################################
 
-def get_diff_op(u0, dx, dt, nu):
+class BurgersDynamics(SPDEDynamics):
     """
-    Constructs current linearised differential operator.
+    The parameters of the model are, in order:
+    0. nu
+    1. observation noise
     """
-    partial_t = FinDiff(1, dt, 1, acc=2)
-    partial_x = FinDiff(0, dx, 1, acc=2, periodic=True)
-    partial_xx = FinDiff(0, dx, 2, acc=2, periodic=True)
-    u0_x = partial_x(u0)
-    diff_op = partial_t + Coef(u0) * partial_x - Coef(nu) * partial_xx + Coef(u0_x) * Identity()
-    return diff_op
 
-def get_prior_mean(u0, diff_op_gen):
-    """
-    Calculates current prior mean.
-    """
-    partial_x = FinDiff(0, dx, 1, acc=2, periodic=True)
-    u0_x = partial_x(u0)
-    diff_op = diff_op_gen(u0)
-    diff_op_mat = diff_op.matrix(u0.shape)
-    prior_mean = spsolve(diff_op_mat, (u0 * u0_x).flatten())
-    return prior_mean.reshape(u0.shape)
+    def __init__(self, dx, dt) -> None:
+        super().__init__()
+        self.dx = dx
+        self.dt = dt
 
-diff_op_gen = lambda u: get_diff_op(u, dx, dt, nu)
-prior_mean_gen = lambda u: get_prior_mean(u, diff_op_gen)
+    def get_diff_op(self, u0, params, **kwargs):
+        """
+        Construct current linearised differential operator.
+        """
+        nu, _ = params
+        partial_t = FinDiff(1, dt, 1, acc=2)
+        partial_x = FinDiff(0, dx, 1, acc=2, periodic=True)
+        partial_xx = FinDiff(0, dx, 2, acc=2, periodic=True)
+        u0_x = partial_x(u0)
+        diff_op = partial_t + Coef(u0) * partial_x - Coef(nu) * partial_xx + Coef(u0_x) * Identity()
+        return diff_op
 
+    def get_prior_precision(self, u0, params, **kwargs):
+        """
+        Calculate current prior precision.
+        """
+        diff_op_guess = self.get_diff_op(u0, params, **kwargs)
+        L = util.operator_to_matrix(diff_op_guess, u0.shape, interior_only=False)
+        # prior_precision = (self.dt * self.dx / params[2]**2) * (L.T @ L)
+        # prior_precision = self.dt * self.dx * (L.T @ L)
+        prior_precision = L.T @ L
+        return prior_precision
 
-######################################
-# Naive diff. op. and mean generator #
-######################################
+    def get_prior_mean(self, u0, params, **kwargs):
+        """
+        Calculate current prior mean.
+        """
+        # Construct linearisation remainder term
+        partial_x = FinDiff(0, dx, 1, acc=2, periodic=True)
+        u0_x = partial_x(u0)
+        remainder = u0 * u0_x
 
-def get_diff_op_naive(u0, dx, dt, nu):
-    partial_t = FinDiff(1, dt, 1, acc=2)
-    partial_x = FinDiff(0, dx, 1, acc=2, periodic=True)
-    partial_xx = FinDiff(0, dx, 2, acc=2, periodic=True)
-    diff_op = partial_t + Coef(u0) * partial_x - Coef(nu) * partial_xx
-    return diff_op
+        # Construct diff. op.
+        diff_op = self.get_diff_op(u0, params, **kwargs)
+        L = diff_op.matrix(u0.shape)
 
-def get_prior_mean_naive(u0, diff_op_gen):
-    return np.zeros_like(u0)
+        # Compute prior mean
+        prior_mean = spsolve(L.T @ L, L.T @ remainder.flatten())
+        return prior_mean.reshape(u0.shape)
 
-diff_op_gen_naive = lambda u: get_diff_op_naive(u, dx, dt, nu)
-prior_mean_gen_naive = lambda u: get_prior_mean_naive(u, diff_op_gen)
+    def get_obs_noise(self, params, **kwargs):
+        """
+        Get observation noise (standard deviation).
+        """
+        return params[1]
 
-## Fit GP with non-linear SPDE prior from Burgers' equation
+dynamics = BurgersDynamics(dx, dt)
 
-# Perform iterative optimisation
+##########################################
+# Fit model with iterative linearistaion #
+##########################################
+
 max_iter = 20
-model = nonlinear.NonlinearSPDERegressor(u, dx, dt, diff_op_gen, prior_mean_gen, mixing_coef=0.5)
-model.fit(obs_dict, obs_std, max_iter=max_iter, animated=True, calc_std=True, calc_mnll=True)
-iter_count = len(model.mse_hist)
+model = IterativeRegressor(u, dynamics, mixing_coef=0.1)
+model.fit(obs_dict, params, max_iter=max_iter, animated=True, calc_std=True, calc_mnll=True)
 
-# Fit with naive linearisation
-model_naive = nonlinear.NonlinearSPDERegressor(u, dx, dt, diff_op_gen_naive, prior_mean_gen_naive, mixing_coef=0.2)
-model_naive.fit(obs_dict, obs_std, max_iter=max_iter, animated=True, calc_std=True, calc_mnll=True)
-iter_count_naive = len(model_naive.mse_hist)
+############
+# Plot fit #
+############
 
-# Plot convergence history
-plt.plot(np.arange(1, iter_count + 1), model.mse_hist, label="Linearisation via expansion")
-plt.plot(np.arange(1, iter_count_naive + 1), model_naive.mse_hist, label="Naive linearisation")
-plt.yscale('log')
-plt.xlabel("Iteration")
-plt.ylabel("MSE")
-plt.xticks(np.arange(2, max(iter_count, iter_count_naive) + 1, 2))
-plt.legend()
-plt.savefig("figures/burgers_eqn/mse_conv.png", dpi=200)
+plt.figure(figsize=(3,3))
+plt.imshow(model.posterior_mean, extent=(0, 1, -1, 1), origin="lower", aspect=.5, rasterized=True, cmap="RdBu_r")
+plt.xlabel("$t$")
+plt.ylabel("$x$", labelpad=0)
+plt.scatter(dt * obs_idxs[:,1], dx * obs_idxs[:,0] - 1, c="grey", s=12, marker="o", alpha=1.0, label="Observations")
+plt.gca().yaxis.set_major_locator(plt.MultipleLocator(0.5))
+plt.tight_layout(pad=0)
+plt.savefig("figures/burgers_eqn/burgers_spde.pdf", transparent=True)
+
+plt.figure(figsize=(3,3))
+plt.imshow(model.posterior_std, extent=(0, 1, -1, 1), origin="lower", aspect=.5, rasterized=True, cmap="YlGnBu_r")
+plt.xlabel("$t$")
+plt.ylabel("$x$", labelpad=0)
+plt.scatter(dt * obs_idxs[:,1], dx * obs_idxs[:,0] - 1, c="grey", s=12, marker="o", alpha=1.0, label="Observations")
+plt.gca().yaxis.set_major_locator(plt.MultipleLocator(0.5))
+plt.tight_layout(pad=0)
+plt.savefig("figures/burgers_eqn/burgers_spde_std.pdf", transparent=True)
 plt.show()
-
-# Save animation
-print("Saving animation...")
-model.save_animation("figures/burgers_eqn/burgers_eqn_iter_animation.gif", fps=10)

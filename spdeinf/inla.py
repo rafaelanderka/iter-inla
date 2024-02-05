@@ -42,6 +42,7 @@ def sample_parameter_posterior(logpdf, x0, opt_method="Nelder-Mead", sampling_th
     print("Finding parameter posterior mode...")
     opt = minimize(fun=neg_logpdf, x0=x0, method=opt_method, bounds=param_bounds)
     x_map = opt["x"]
+    print("MAP parameters:", x_map)
 
     # Calculate eigenvectors of Hessian at mode, to be used as sampling directions
     H = _hessian(neg_logpdf, x_map) # H is (M, M)
@@ -76,7 +77,6 @@ def sample_parameter_posterior(logpdf, x0, opt_method="Nelder-Mead", sampling_th
             xS = x_map + offset * sampling_step_size * sampling_evec_scales[i] * evec
             if not (xS <= 0).any():
                 while p0 - logpdf(xS) < sampling_threshold:
-                    # break
                     pS, post_mean, post_vars, post_shift, post_precision = evaluate_logpdf_full(xS)
                     samples_x.append(xS.copy())
                     samples_p.append(pS)
@@ -192,5 +192,5 @@ def _hessian(fun, x, epsilon=1e-5):
 def _generate_combinations(ranges):
     # Convert the (min, max)-tuples to range generators
     range_generators = [range(start, end+1) for start, end in ranges]
-    # Compute the cartesian product of the lists
+    # Compute the Cartesian product of the lists
     return itertools.product(*range_generators)

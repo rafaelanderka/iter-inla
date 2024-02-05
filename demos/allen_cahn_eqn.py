@@ -1,12 +1,27 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.colors import LogNorm
 from scipy.io import loadmat
 from scipy.sparse.linalg import spsolve
 from findiff import FinDiff, Coef, Identity
 
-from spdeinf import nonlinear, util
+from spdeinf import util
+from spdeinf.nonlinear import SPDEDynamics, IterativeRegressor
 
-# Load Allen-Cahn eq. data from PINNs examples
+# Set seed
+np.random.seed(0)
+
+##################################
+# Load data from Allen-Cahn eqn. #
+##################################
+
+# Define parameters of the Allen-Cahn eqn. and model
+alpha = 0.001
+beta = 5
+obs_std = 1e-2
+params = np.array([alpha, beta, obs_std])
+
+# Load Allen-Cahn eqn. data from PINNs examples
 data = loadmat("data/PINNs/AC.mat")
 uu = data['uu']
 xx = data['x'].squeeze()
@@ -20,82 +35,105 @@ dt = tt[1] - tt[0]
 alpha = 0.001
 beta = 5
 
-################################
-# Diff. op. and mean generator #
-################################
-
-def get_diff_op(u0, dx, dt, alpha, beta):
-    """
-    Constructs current linearised differential operator.
-    """
-    partial_t = FinDiff(1, dt, 1, acc=2)
-    partial_xx = FinDiff(0, dx, 2, acc=2, periodic=True)
-    u0_sq = u0 ** 2
-    diff_op = partial_t - Coef(alpha) * partial_xx + Coef(3 * beta * u0_sq) * Identity() - Coef(beta) * Identity()
-    return diff_op
-
-def get_prior_mean(u0, diff_op_gen, beta):
-    """
-    Calculates current prior mean.
-    """
-    u0_cu = u0 ** 3
-    diff_op = diff_op_gen(u0)
-    diff_op_mat = diff_op.matrix(u0.shape)
-    prior_mean = spsolve(diff_op_mat, (2 * beta * u0_cu).flatten())
-    return prior_mean.reshape(u0.shape)
-
-diff_op_gen = lambda u: get_diff_op(u, dx, dt, alpha, beta)
-prior_mean_gen = lambda u: get_prior_mean(u, diff_op_gen, beta)
-
-
-######################################
-# Naive diff. op. and mean generator #
-######################################
-
-def get_diff_op_naive(u0, dx, dt, alpha):
-    """
-    Constructs current linearised differential operator.
-    """
-    partial_t = FinDiff(1, dt, 1)
-    partial_xx = FinDiff(0, dx, 2, periodic=True)
-    diff_op = partial_t - Coef(alpha) * partial_xx
-    return diff_op
-
-def get_prior_mean_naive(u0, diff_op_gen, beta):
-    u0_cu = u0 ** 3
-    diff_op = diff_op_gen(u0)
-    diff_op_mat = diff_op.matrix(u0.shape)
-    prior_mean = spsolve(diff_op_mat, (beta * (u0 - u0_cu)).flatten())
-    return prior_mean.reshape(u0.shape)
-
-diff_op_gen_naive = lambda u: get_diff_op_naive(u, dx, dt, alpha)
-prior_mean_gen_naive = lambda u: get_prior_mean_naive(u, diff_op_gen, beta)
-
-## Fit GP with non-linear SPDE prior from Allen-Cahn equation
-
 # Sample observations
-obs_std = 1e-2
 obs_count = 256
 obs_dict = util.sample_observations(uu, obs_count, obs_std, extent=(None, None, 0, 56))
 obs_idxs = np.array(list(obs_dict.keys()), dtype=int)
 print("Number of observations:", obs_idxs.shape[0])
 
-# Perform iterative optimisation
-max_iter = 50
-model = nonlinear.NonlinearSPDERegressor(uu, dx, dt, diff_op_gen, prior_mean_gen, mixing_coef=0.5)
-model.fit(obs_dict, obs_std, max_iter=max_iter, animated=True, calc_std=True, calc_mnll=True)
-iter_count = len(model.mse_hist)
+###################################
+# Define Allen-Cahn eqn. dynamics #
+###################################
 
-# Plot convergence history
-plt.plot(np.arange(1, iter_count + 1), model.mse_hist, label="Linearisation via expansion")
-plt.yscale('log')
-plt.xlabel("Iteration")
-plt.ylabel("MSE")
-plt.xticks(np.arange(2, iter_count + 1, 2))
-plt.legend()
-plt.savefig("figures/allen_cahn_eqn/mse_conv.png", dpi=200)
+class ACDynamics(SPDEDynamics):
+    """
+    The parameters of the model are, in order:
+    0. alpha
+    1. beta
+    2. observation noise
+    """
+
+    def __init__(self, dx, dt) -> None:
+        super().__init__()
+        self.dx = dx
+        self.dt = dt
+
+    def get_diff_op(self, u0, params, **kwargs):
+        """
+        Construct current linearised differential operator.
+        """
+        alpha, beta, _ = params
+        partial_t = FinDiff(1, dt, 1, acc=2)
+        partial_xx = FinDiff(0, dx, 2, acc=2, periodic=True)
+        u0_sq = u0 ** 2
+        diff_op = partial_t - Coef(alpha) * partial_xx + Coef(3 * beta * u0_sq) * Identity() - Coef(beta) * Identity()
+        return diff_op
+
+    def get_prior_precision(self, u0, params, **kwargs):
+        """
+        Calculate current prior precision.
+        """
+        diff_op_guess = self.get_diff_op(u0, params, **kwargs)
+        L = util.operator_to_matrix(diff_op_guess, u0.shape, interior_only=False)
+        # prior_precision = (self.dt * self.dx / params[2]**2) * (L.T @ L)
+        # prior_precision = self.dt * self.dx * (L.T @ L)
+        prior_precision = L.T @ L
+        return prior_precision
+
+    def get_prior_mean(self, u0, params, **kwargs):
+        """
+        Calculate current prior mean.
+        """
+        _, beta, _ = params
+
+        # Construct linearisation remainder term
+        u0_cu = u0 ** 3
+        remainder = 2 * beta * u0_cu
+
+        # Construct diff. op.
+        diff_op = self.get_diff_op(u0, params, **kwargs)
+        L = diff_op.matrix(u0.shape)
+
+        # Compute prior mean
+        prior_mean = spsolve(L, remainder.flatten())
+        # prior_mean = spsolve(L.T @ L, L.T @ remainder.flatten())
+        return prior_mean.reshape(u0.shape)
+
+    def get_obs_noise(self, params, **kwargs):
+        """
+        Get observation noise (standard deviation).
+        """
+        return params[2]
+
+dynamics = ACDynamics(dx, dt)
+
+##########################################
+# Fit model with iterative linearistaion #
+##########################################
+
+max_iter = 20
+model = IterativeRegressor(uu, dynamics, mixing_coef=0.5)
+model.fit(obs_dict, params, max_iter=max_iter, animated=True, calc_std=True, calc_mnll=True)
+
+############
+# Plot fit #
+############
+
+plt.figure(figsize=(3,3))
+plt.imshow(model.posterior_mean, extent=(0, 1, -1, 1), origin="lower", aspect=.5, rasterized=True, cmap="RdBu_r", vmin=-1, vmax=1)
+plt.xlabel("$t$")
+plt.ylabel("$x$", labelpad=0)
+plt.scatter(dt * obs_idxs[:,1], dx * obs_idxs[:,0] - 1, c="grey", s=12, marker="o", alpha=0.6, label="Observations")
+plt.gca().yaxis.set_major_locator(plt.MultipleLocator(0.5))
+plt.tight_layout(pad=0)
+plt.savefig("figures/allen_cahn_eqn/ac_spde.pdf", transparent=True)
+
+plt.figure(figsize=(3,3))
+plt.imshow(model.posterior_std, extent=(0, 1, -1, 1), origin="lower", aspect=.5, rasterized=True, cmap="YlGnBu_r", norm=LogNorm(vmin=1e-5, vmax=3))
+plt.xlabel("$t$")
+plt.ylabel("$x$", labelpad=0)
+plt.scatter(dt * obs_idxs[:,1], dx * obs_idxs[:,0] - 1, c="grey", s=12, marker="o", alpha=0.6, label="Observations")
+plt.gca().yaxis.set_major_locator(plt.MultipleLocator(0.5))
+plt.tight_layout(pad=0)
+plt.savefig("figures/allen_cahn_eqn/ac_spde_std.pdf", transparent=True)
 plt.show()
-
-# Save animation
-print("Saving animation...")
-model.save_animation("figures/allen_cahn_eqn/allen_cahn_eqn_iter_animation.gif", fps=5)
