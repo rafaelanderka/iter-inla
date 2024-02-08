@@ -58,7 +58,7 @@ def sample_parameter_posterior(logpdf, x0, opt_method="Nelder-Mead", sampling_th
             post_shift = None
             post_precision = None
         return p0, post_mean, post_vars, post_shift, post_precision
-    
+
     p0, post_mean, post_vars, post_shift, post_precision = evaluate_logpdf_full(x_map)
 
     samples_x = [x_map]
@@ -77,6 +77,8 @@ def sample_parameter_posterior(logpdf, x0, opt_method="Nelder-Mead", sampling_th
             xS = x_map + offset * sampling_step_size * sampling_evec_scales[i] * evec
             if not (xS <= 0).any():
                 while p0 - logpdf(xS) < sampling_threshold:
+                    break
+                    print(offset)
                     pS, post_mean, post_vars, post_shift, post_precision = evaluate_logpdf_full(xS)
                     samples_x.append(xS.copy())
                     samples_p.append(pS)

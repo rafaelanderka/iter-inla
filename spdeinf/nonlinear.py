@@ -15,37 +15,70 @@ class SPDEDynamics(ABC):
     Abstract class encapsulating the dynamics of an SPDE.
     """
 
-    @abstractmethod
-    def get_diff_op(self, u0, params, *args, **kwargs):
+    def __init__(self):
+        # Initialise state variables
+        self._u0 = None
+        self._params = None
+        self._diff_op = None
+        self._L = None
+        self._prior_precision = None
+        self._prior_mean = None
+        self._obs_noise = None
+
+    def get_diff_op(self):
+        return self._diff_op
+
+    def get_prior_precision(self):
+        return self._prior_precision
+
+    def get_prior_mean(self):
+        return self._prior_mean
+
+    def get_obs_noise(self):
+        return self._obs_noise
+
+    def update(self, u0, params, **kwargs):
         """
-        Constructs current linearised differential operator.
+        Updates linearised dynamics based on current parameters.
+        """
+        self._u0 = u0
+        self._params = params
+        self._diff_op = self._update_diff_op()
+        self._L = self._diff_op.matrix(u0.shape)
+        self._prior_precision = self._update_prior_precision()
+        self._prior_mean = self._update_prior_mean()
+        self._obs_noise = self._update_obs_noise()
+
+    @abstractmethod
+    def _update_diff_op(self):
+        """
+        Constructs linearised differential operator based on current state.
         """
         return NotImplementedError
 
     @abstractmethod
-    def get_prior_precision(self, u0, params, **kwargs):
+    def _update_prior_precision(self):
         """
-        Calculates current prior precision.
-        """
-        return NotImplementedError
-
-    @abstractmethod
-    def get_prior_mean(self, u0, params, **kwargs):
-        """
-        Calculates current prior mean.
+        Calculates prior precision based on current state.
         """
         return NotImplementedError
 
     @abstractmethod
-    def get_obs_noise(self, params, **kwargs):
+    def _update_prior_mean(self):
         """
-        Get the observation noise (standard deviation).
+        Calculates prior mean based on current state.
         """
         return NotImplementedError
 
+    @abstractmethod
+    def _update_obs_noise(self):
+        """
+        Calculates the observation noise (std. dev.) based on current state.
+        """
+        return NotImplementedError
 
 class IterativeRegressor(object):
-    def __init__(self, u, dynamics, mixing_coef=1.) -> None:
+    def __init__(self, u, dynamics, u0=None, mixing_coef=1.) -> None:
         self.u = u
         self.dynamics = dynamics
         self.mixing_coef = mixing_coef
@@ -56,8 +89,10 @@ class IterativeRegressor(object):
         self.obs_dict = None
 
         # Optimiser state
-        self.u0 = np.zeros_like(self.u)
-        # self.u0 = self.u.copy()
+        if u0 is not None:
+            self.u0 = u0.copy()
+        else:
+            self.u0 = np.zeros_like(self.u)
         self.u0_hist = [self.u0.copy()]
         self.mse = float("inf")
         self.mse_hist = []
@@ -80,10 +115,11 @@ class IterativeRegressor(object):
 
     def update(self, calc_std=False, calc_mnll=False, **kwargs):
         # Get current prior mean, prior precision and observation noise
-        self.prior_mean = self.dynamics.get_prior_mean(self.u0, self.params, **kwargs)
+        self.dynamics.update(self.u0, self.params, **kwargs)
+        self.prior_mean = self.dynamics.get_prior_mean()
         self.prior_mean_hist.append(self.prior_mean)
-        prior_precision = self.dynamics.get_prior_precision(self.u0, self.params, **kwargs)
-        obs_noise = self.dynamics.get_obs_noise(self.params, **kwargs)
+        prior_precision = self.dynamics.get_prior_precision()
+        obs_noise = self.dynamics.get_obs_noise()
 
         ## Fit GMRF around current linearisation point
         # Get "data term" of posterior
@@ -223,6 +259,7 @@ class IterativeINLARegressor(object):
                  param_priors: List[distributions.Distribution] = None,
                  param_bounds=None,
                  params_true=None,
+                 u0=None,
                  mixing_coef=1.,
                  sampling_evec_scales=None,
                  sampling_threshold=None) -> None:
@@ -274,11 +311,13 @@ class IterativeINLARegressor(object):
         # Data to fit
         self.obs_dict = None
         self.obs_idxs_flat = None
-        self.obs_count = 0
+        self.N = None
 
         # Optimiser state
-        self.u0 = np.zeros_like(self.u)
-        # self.u0 = self.u.copy()
+        if u0 is not None:
+            self.u0 = u0.copy()
+        else:
+            self.u0 = np.zeros_like(self.u)
         self.u0_hist = [self.u0.copy()]
         self.mse = float("inf")
         self.mse_hist = []
@@ -299,6 +338,10 @@ class IterativeINLARegressor(object):
         self.log_marg_post_hist = []
         self.samples_x_hist = []
 
+        # Define reused consts.
+        self.M = np.prod(u.shape)
+        self.log_2pi = np.log(2 * np.pi)
+
     def _log_param_prior(self, params):
         """
         Compute the log prior on the parameters Σ_i log(p(θ_i)).
@@ -316,42 +359,36 @@ class IterativeINLARegressor(object):
         log_p_ut = 0.5 * (Q_u_logdet - diff_mu_uy_mu_u.T @ Q_u @ diff_mu_uy_mu_u - self.M * self.log_2pi)
         return log_p_ut
 
-    def _log_likelihood(self, obs_vals, obs_idxs_flat, mu_uy, Q_obs, Q_obs_logdet):
+    def _log_likelihood(self, obs_vals, obs_idxs_flat, mu_uy, obs_precision, Q_obs_logdet):
         """
         Compute the log likelihood log(p(y|u,θ)).
         """
         diff_obs_mu_uy = obs_vals - mu_uy[obs_idxs_flat]
-        log_p_yut = 0.5 * (Q_obs_logdet - diff_obs_mu_uy.T @ Q_obs @ diff_obs_mu_uy - self.N * self.log_2pi)
+        log_p_yut = 0.5 * (Q_obs_logdet - obs_precision * diff_obs_mu_uy.T @ diff_obs_mu_uy - self.N * self.log_2pi)
         return log_p_yut
 
-    def _logpdf_marginal_posterior(self, params, Q_u, Q_uy, Q_obs, mu_u, mu_uy, obs_dict, shape, regularisation=1e-3, **kwargs):
+    def _logpdf_marginal_posterior(self, params, Q_u, Q_uy, mu_u, mu_uy, obs_precision, obs_dict, shape, regularisation=1e-3, **kwargs):
         """
         Compute the log marginal on parameters.
         log(p(θ|y)) = log(p(θ)) + log(p(u|θ)) + log(p(y|u,θ)) - log(p(u|y,θ)) + const.
         """
-
-        # Define reused consts.
-        self.log_2pi = np.log(2 * np.pi)
-        self.N = Q_obs.shape[0]
-        self.M = Q_u.shape[0]
 
         # Unpack parameters
         obs_idxs = np.array(list(obs_dict.keys()), dtype=int)
         obs_idxs_flat = shape[1] * obs_idxs[:,0] + obs_idxs[:,1]
         obs_vals = np.array(list(obs_dict.values()), dtype=float)
 
-        # Perform matrix factorisation to compute log determinants
+        # Perform matrix factorisation and compute log determinants
         Q_u_chol = cholesky(Q_u + regularisation * sparse.identity(Q_u.shape[0]))
         Q_u_logdet = Q_u_chol.logdet()
         Q_uy_chol = cholesky(Q_uy)
         Q_uy_logdet = Q_uy_chol.logdet()
-        Q_obs_chol = cholesky(Q_obs)
-        Q_obs_logdet = Q_obs_chol.logdet()
+        Q_obs_logdet = self.N * np.log(obs_precision)
 
         # Compute approximate log posterior log(p(θ|y))
         log_p_t = self._log_param_prior(params)
         log_p_ut = self._log_state_prior(mu_u, mu_uy, Q_u, Q_u_logdet)
-        log_p_yut = self._log_likelihood(obs_vals, obs_idxs_flat, mu_uy, Q_obs, Q_obs_logdet)
+        log_p_yut = self._log_likelihood(obs_vals, obs_idxs_flat, mu_uy, obs_precision, Q_obs_logdet)
         log_p_uyt = 0.5 * (Q_uy_logdet - self.M * self.log_2pi)
         log_p_ty = log_p_t + log_p_ut + log_p_yut - log_p_uyt
         return log_p_ty
@@ -361,13 +398,16 @@ class IterativeINLARegressor(object):
         Return the approximate log marginal log(p(θ|y)) and optionally, the marginal statistics on the states if return_conditional_params=True
         """
 
-        # Process args
-        obs_count = len(obs_dict.keys())
-        obs_noise = self.dynamics.get_obs_noise(params, **kwargs)
+        # Update model dynamics based on parameters
+        self.dynamics.update(self.u0, params, **kwargs)
 
-        # Compute prior mean and precision
-        prior_mean = self.dynamics.get_prior_mean(u0, params, **kwargs)
-        prior_precision = self.dynamics.get_prior_precision(u0, params, **kwargs)
+        # Get observation noise
+        obs_noise = self.dynamics.get_obs_noise()
+        obs_precision = obs_noise ** (-2)
+
+        # Get prior mean and precision
+        prior_mean = self.dynamics.get_prior_mean()
+        prior_precision = self.dynamics.get_prior_precision()
 
         # Get "data term" of full conditional
         res = linear._fit_gmrf(self.u, obs_dict, obs_noise, prior_mean, prior_precision, calc_std=return_conditional_params,
@@ -378,7 +418,6 @@ class IterativeINLARegressor(object):
         Q_u = prior_precision
         mu_uy = res['posterior_mean']
         Q_uy = res['posterior_precision']
-        Q_obs = sparse.diags([obs_noise ** (-2)], 0, shape=(obs_count, obs_count), format='csc')
 
         if debug:
             plt.figure()
@@ -386,7 +425,7 @@ class IterativeINLARegressor(object):
             plt.show()
 
         # Compute marginal posterior
-        logpdf = self._logpdf_marginal_posterior(params, Q_u, Q_uy, Q_obs, mu_u.flatten(), mu_uy.flatten(), obs_dict, u0.shape, **kwargs)
+        logpdf = self._logpdf_marginal_posterior(params, Q_u, Q_uy, mu_u.flatten(), mu_uy.flatten(), obs_precision, obs_dict, u0.shape, **kwargs)
         if return_conditional_params:
             return logpdf, mu_uy, res['posterior_var'], res['posterior_shift'], Q_uy
         return logpdf
@@ -400,7 +439,7 @@ class IterativeINLARegressor(object):
         calc_std: bool
             Option to compute the state uncertainty at each iteration.
         calc_mnll: bool
-            Option to compute and display the mean nll at each iteration.
+            Option to compute and display the mean NLL at each iteration.
         parameterisation: 'moment' or 'natural'
             Whether to apply update rule based on the moment parameterisation or the natural parameterisation.
         kwargs:
@@ -410,7 +449,7 @@ class IterativeINLARegressor(object):
         ----
         - When parameterisation='moment', we use the averaged posterior mean to update the linearisation point.
         - When parameterisation='natural', we use the averaged natural parameters to update the linearisation point.
-          Specifically, we take averages of the shift vector b and the precision matrix P, and compute the corresonding
+          Specifically, we take averages of the shift vector b and the precision matrix P, and compute the corresponding
           mean by m = P^{-1}b, which will be used as the linearisation point.
         """
 
@@ -494,7 +533,7 @@ class IterativeINLARegressor(object):
         calc_std: bool
             Option to compute the state uncertainty at each iteration.
         calc_mnll: bool
-            Option to compute and display the mean nll at each iteration.
+            Option to compute and display the mean NLL at each iteration.
         kwargs:
             Keyword arguments to be passed to the abstract methods.
 
@@ -508,7 +547,7 @@ class IterativeINLARegressor(object):
 
         self.preempt_requested = False
         self.obs_dict = obs_dict
-        self.obs_count = len(obs_dict)
+        self.N = len(obs_dict)
         calc_std = calc_std or animated
 
         # Initialise figure
