@@ -40,11 +40,6 @@ tau_s = 1
 s_prior_mode = 0.01
 s_0 = np.log(s_prior_mode) + (tau_s ** (-2))
 
-# Observation noise prior
-tau_t = 1
-t_prior_mode = 0.05
-t_0 = np.log(t_prior_mode) + (tau_t ** (-2))
-
 param0 = np.array([nu_prior_mode, s_prior_mode])
 param_priors = [LogNormal(mu=nu_0, sigma=1/tau_nu),
                 LogNormal(mu=s_0, sigma=1/tau_s)]

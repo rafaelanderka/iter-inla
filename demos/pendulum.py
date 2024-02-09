@@ -67,48 +67,46 @@ class PendulumDynamics(SPDEDynamics):
         super().__init__()
         self.dt = dt
 
-    def get_diff_op(self, u0, params, **kwargs):
+    def _update_diff_op(self):
         """
-        Construct current linearised differential operator.
+        Constructs linearised differential operator based on current state.
         """
-        b, c, _ = params
+        b = self._params[0]
+        c = self._params[1]
         partial_t = FinDiff(1, self.dt, 1)
         partial_tt = FinDiff(1, self.dt, 2)
-        u0_cos = np.cos(u0)
+        u0_cos = np.cos(self._u0)
         diff_op = partial_tt + Coef(b) * partial_t + Coef(c * u0_cos) * Identity()
         return diff_op
 
-    def get_prior_precision(self, u0, params, **kwargs):
+    def _update_prior_precision(self):
         """
         Calculate current prior precision.
         """
-        diff_op_guess = self.get_diff_op(u0, params, **kwargs)
-        L = util.operator_to_matrix(diff_op_guess, u0.shape, interior_only=False)
-        prior_precision = (self.dt / params[2]**2) * (L.T @ L)
+        prior_precision = self._L.T @ self._L
         return prior_precision
 
-    def get_prior_mean(self, u0, params, **kwargs):
+    def _update_prior_mean(self):
         """
         Calculate current prior mean.
         """
-        _, c, _ = params
-        u0_cos = np.cos(u0)
-        u0_sin = np.sin(u0)
-        diff_op = self.get_diff_op(u0, params, **kwargs)
-        diff_op_mat = diff_op.matrix(u0.shape)
-        prior_mean = spsolve(diff_op_mat, (c * (u0 * u0_cos - u0_sin)).flatten())
-        return prior_mean.reshape(u0.shape)
+        c = self._params[1]
+        u0_cos = np.cos(self._u0)
+        u0_sin = np.sin(self._u0)
+        prior_mean = spsolve(self._L, (c * (self._u0 * u0_cos - u0_sin)).flatten())
+        return prior_mean.reshape(self._u0.shape)
 
-    def get_obs_noise(self, params, **kwargs):
+    def _update_obs_noise(self):
         """
         Get observation noise (standard deviation).
         """
-        return params[2]
+        return self._params[2]
+
 
 dynamics = PendulumDynamics(dt)
 
 ##########################################
-# Fit model with iterative linearistaion #
+# Fit model with iterative linearisation #
 ##########################################
 
 max_iter = 20

@@ -40,7 +40,7 @@ l1_0 = np.log(l1_prior_mode) + (tau_l1 ** (-2))
 
 # Process noise prior
 tau_k = 1
-k_prior_mode = 0.05
+k_prior_mode = 0.01
 k_0 = np.log(k_prior_mode) + (tau_k ** (-2))
 
 param0 = np.array([l1_prior_mode, k_prior_mode])
