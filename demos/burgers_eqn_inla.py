@@ -8,9 +8,9 @@ from findiff import FinDiff, Coef, Identity
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, WhiteKernel
 
-from spdeinf import util
-from spdeinf.nonlinear import SPDEDynamics, IterativeINLARegressor
-from spdeinf.distributions import LogNormal
+from iinla import util
+from iinla.nonlinear import SPDEDynamics, IterativeINLARegressor
+from iinla.distributions import LogNormal
 
 # General configuration
 data_id = 9 # 0 - 9
@@ -44,12 +44,6 @@ param0 = np.array([nu_prior_mode, s_prior_mode])
 param_priors = [LogNormal(mu=nu_0, sigma=1/tau_nu),
                 LogNormal(mu=s_0, sigma=1/tau_s)]
 param_bounds = [(0.005, 0.1), (0.00001, 0.1)]
-
-fig, ax = plt.subplots(len(param_priors), 1)
-for i, pr in enumerate((param_priors)):
-    domain = np.linspace(*param_bounds[i], 100)
-    ax[i].plot(domain, np.exp(pr.logpdf(domain)))
-plt.show()
 
 # Create spatial discretisation
 L_x = 1                       # Range of spatial domain
@@ -118,10 +112,6 @@ obs_dict = data_dict['obs_dict']
 obs_idxs = np.array(list(obs_dict.keys()), dtype=int)
 obs_locs = np.array([[xx[i], tt[j]] for i, j in obs_idxs])
 obs_vals = np.array(list(obs_dict.values()), dtype=float)
-
-plt.imshow(uu)
-plt.scatter(obs_idxs[:,1], obs_idxs[:,0])
-plt.show()
 
 #################################
 # Define Burgers' eqn. dynamics #

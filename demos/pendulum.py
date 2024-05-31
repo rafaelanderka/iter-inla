@@ -4,8 +4,8 @@ from scipy.sparse.linalg import spsolve
 from scipy.integrate import odeint
 from findiff import FinDiff, Coef, Identity
 
-from spdeinf import util
-from spdeinf.nonlinear import SPDEDynamics, IterativeRegressor
+from iinla import util
+from iinla.nonlinear import SPDEDynamics, IterativeRegressor
 
 # Set seed
 np.random.seed(0)

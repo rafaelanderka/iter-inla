@@ -8,7 +8,7 @@ from tqdm import tqdm
 from abc import ABC, abstractmethod
 from typing import List
 
-from . import inla, linear, metrics, util, distributions
+from . import inla, linear, metrics, distributions
 
 class SPDEDynamics(ABC):
     """
@@ -310,6 +310,7 @@ class IterativeINLARegressor(object):
 
         # Data to fit
         self.obs_dict = None
+        self.obs_vals = None
         self.obs_idxs_flat = None
         self.N = None
 
@@ -359,24 +360,19 @@ class IterativeINLARegressor(object):
         log_p_ut = 0.5 * (Q_u_logdet - diff_mu_uy_mu_u.T @ Q_u @ diff_mu_uy_mu_u - self.M * self.log_2pi)
         return log_p_ut
 
-    def _log_likelihood(self, obs_vals, obs_idxs_flat, mu_uy, obs_precision, Q_obs_logdet):
+    def _log_likelihood(self, mu_uy, obs_precision, Q_obs_logdet):
         """
         Compute the log likelihood log(p(y|u,θ)).
         """
-        diff_obs_mu_uy = obs_vals - mu_uy[obs_idxs_flat]
+        diff_obs_mu_uy = self.obs_vals - mu_uy[self.obs_idxs_flat]
         log_p_yut = 0.5 * (Q_obs_logdet - obs_precision * diff_obs_mu_uy.T @ diff_obs_mu_uy - self.N * self.log_2pi)
         return log_p_yut
 
-    def _logpdf_marginal_posterior(self, params, Q_u, Q_uy, mu_u, mu_uy, obs_precision, obs_dict, shape, regularisation=1e-3, **kwargs):
+    def _logpdf_marginal_posterior(self, params, Q_u, Q_uy, mu_u, mu_uy, obs_precision, regularisation=1e-3, **kwargs):
         """
         Compute the log marginal on parameters.
         log(p(θ|y)) = log(p(θ)) + log(p(u|θ)) + log(p(y|u,θ)) - log(p(u|y,θ)) + const.
         """
-
-        # Unpack parameters
-        obs_idxs = np.array(list(obs_dict.keys()), dtype=int)
-        obs_idxs_flat = shape[1] * obs_idxs[:,0] + obs_idxs[:,1]
-        obs_vals = np.array(list(obs_dict.values()), dtype=float)
 
         # Perform matrix factorisation and compute log determinants
         Q_u_chol = cholesky(Q_u + regularisation * sparse.identity(Q_u.shape[0]))
@@ -388,12 +384,12 @@ class IterativeINLARegressor(object):
         # Compute approximate log posterior log(p(θ|y))
         log_p_t = self._log_param_prior(params)
         log_p_ut = self._log_state_prior(mu_u, mu_uy, Q_u, Q_u_logdet)
-        log_p_yut = self._log_likelihood(obs_vals, obs_idxs_flat, mu_uy, obs_precision, Q_obs_logdet)
+        log_p_yut = self._log_likelihood(mu_uy, obs_precision, Q_obs_logdet)
         log_p_uyt = 0.5 * (Q_uy_logdet - self.M * self.log_2pi)
         log_p_ty = log_p_t + log_p_ut + log_p_yut - log_p_uyt
         return log_p_ty
 
-    def logpdf_marginal_posterior(self, params, u0, obs_dict, parameterisation='moment', return_conditional_params=False, debug=False, **kwargs):
+    def logpdf_marginal_posterior(self, params, u0, parameterisation='moment', return_conditional_params=False, debug=False, **kwargs):
         """
         Return the approximate log marginal log(p(θ|y)) and optionally, the marginal statistics on the states if return_conditional_params=True
         """
@@ -410,7 +406,7 @@ class IterativeINLARegressor(object):
         prior_precision = self.dynamics.get_prior_precision()
 
         # Get "data term" of full conditional
-        res = linear._fit_gmrf(self.u, obs_dict, obs_noise, prior_mean, prior_precision, calc_std=return_conditional_params,
+        res = linear._fit_gmrf(self.u, self.obs_dict, obs_noise, prior_mean, prior_precision, calc_std=return_conditional_params,
                             include_initial_cond=False, return_posterior_precision=True, return_posterior_shift=True, regularisation=1e-5)
 
         # Define prior and full conditional params
@@ -425,7 +421,7 @@ class IterativeINLARegressor(object):
             plt.show()
 
         # Compute marginal posterior
-        logpdf = self._logpdf_marginal_posterior(params, Q_u, Q_uy, mu_u.flatten(), mu_uy.flatten(), obs_precision, obs_dict, u0.shape, **kwargs)
+        logpdf = self._logpdf_marginal_posterior(params, Q_u, Q_uy, mu_u.flatten(), mu_uy.flatten(), obs_precision, **kwargs)
         if return_conditional_params:
             return logpdf, mu_uy, res['posterior_var'], res['posterior_shift'], Q_uy
         return logpdf
@@ -454,7 +450,7 @@ class IterativeINLARegressor(object):
         """
 
         # Compute posterior marginals
-        logpdf = lambda x, return_conditional_params=False: self.logpdf_marginal_posterior(x, self.u0, self.obs_dict,
+        logpdf = lambda x, return_conditional_params=False: self.logpdf_marginal_posterior(x, self.u0,
                                                                                            parameterisation=parameterisation,
                                                                                            return_conditional_params=return_conditional_params,
                                                                                            **kwargs)
@@ -547,6 +543,10 @@ class IterativeINLARegressor(object):
 
         self.preempt_requested = False
         self.obs_dict = obs_dict
+        self.obs_vals = np.array(list(obs_dict.values()), dtype=float)
+        self.obs_idxs = np.array(list(obs_dict.keys()), dtype=int)
+        self.obs_idxs_flat = self.shape[1] * self.obs_idxs[:,0] + self.obs_idxs[:,1]
+
         self.N = len(obs_dict)
         calc_std = calc_std or animated
 

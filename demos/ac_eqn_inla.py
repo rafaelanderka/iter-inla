@@ -11,9 +11,9 @@ from findiff import FinDiff, Coef, Identity
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, WhiteKernel
 
-from spdeinf import util
-from spdeinf.nonlinear import SPDEDynamics, IterativeINLARegressor
-from spdeinf.distributions import LogNormal
+from iinla import util
+from iinla.nonlinear import SPDEDynamics, IterativeINLARegressor
+from iinla.distributions import LogNormal
 
 # General configuration
 data_id = 4 # 0 - 4
@@ -49,12 +49,6 @@ param_priors = [LogNormal(mu=beta_0, sigma=1/tau_beta),
                 LogNormal(mu=k_0, sigma=1/tau_k)]
 param_bounds = [(1.0, 10.0), (1e-3, 1e-1)]
 
-# fig, ax = plt.subplots(len(param_priors), 1)
-# for i, pr in enumerate((param_priors)):
-#     domain = np.linspace(*param_bounds[i], 100)
-#     ax[i].plot(domain, np.exp(pr.logpdf(domain)))
-# plt.show()
-
 # Load Allen-Cahn eqn. data from PINNs examples
 data = loadmat("data/PINNs/AC.mat")
 uu_full = data['uu']
@@ -71,15 +65,6 @@ N_x = xx.shape[0]
 N_t = tt.shape[0]
 shape = (N_x, N_t)
 Xgrid, Tgrid = np.meshgrid(xx, tt, indexing='ij')
-
-# # Sample 256 observations in [0, 0.28]
-# obs_count_1 = 256
-# obs_loc_1 = np.where(tt == 0.0)[0][0]
-# obs_loc_2 = np.where(tt == 0.28)[0][0]
-# obs_dict = util.sample_observations(uu, obs_count_1, obs_std, extent=(None, None, obs_loc_1, obs_loc_2+1))
-# obs_idxs = np.array(list(obs_dict.keys()), dtype=int)
-# obs_locs = np.array([[xx[i], tt[j]] for i, j in obs_idxs])
-# obs_vals = np.array(list(obs_dict.values()), dtype=float)
 
 # Load observations
 data_file = f"data/ac_{data_id}.pkl"
@@ -233,4 +218,4 @@ plt.scatter(dt * obs_idxs[:,1], dx * obs_idxs[:,0] - 1, c="grey", s=12, marker="
 plt.gca().yaxis.set_major_locator(plt.MultipleLocator(0.5))
 plt.tight_layout(pad=0)
 plt.savefig("figures/allen_cahn_eqn/ac_spde_std.pdf", transparent=True)
-# plt.show()
+plt.show()

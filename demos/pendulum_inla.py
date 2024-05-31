@@ -4,9 +4,9 @@ from scipy.sparse.linalg import spsolve
 from scipy.integrate import odeint
 from findiff import FinDiff, Coef, Identity
 
-from spdeinf import util
-from spdeinf.nonlinear import SPDEDynamics, IterativeINLARegressor
-from spdeinf.distributions import LogNormal
+from iinla import util
+from iinla.nonlinear import SPDEDynamics, IterativeINLARegressor
+from iinla.distributions import LogNormal
 
 # Set seed
 np.random.seed(0)
@@ -178,4 +178,4 @@ plt.xticks(fontsize=12)
 plt.yticks(fontsize=12)
 plt.savefig("figures/pendulum/pendulum_sode_inla.png", dpi=200)
 plt.tight_layout()
-# plt.show()
+plt.show()

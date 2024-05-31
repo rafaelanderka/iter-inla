@@ -4,8 +4,7 @@ from scipy.linalg import eigh
 from scipy.optimize import minimize
 from sksparse.cholmod import cholesky
 
-from spdeinf.distributions import MarginalGaussianMixture
-
+from iinla.distributions import MarginalGaussianMixture
 
 def sample_parameter_posterior(logpdf, x0, opt_method="Nelder-Mead", sampling_threshold=5,
                                sampling_step_size=2, sampling_evec_scales=None, param_bounds=None, tol=1e-7):

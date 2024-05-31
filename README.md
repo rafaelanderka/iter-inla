@@ -1,15 +1,15 @@
 ![Logo](figures/banner.gif)
 <h1 align="center">
-  <b>spdeinf</b>
+  <b>iter-inla</b>
   <br>
 </h1>
 
-<h4 align="center">A general framework for Bayesian data assimilation with nonlinear SPDEs.</h4>
+<h4 align="center">A Python implementation for iterated INLA for state and parameter estimation in nonlinear dynamical systems.</h4>
 <br>
 
 ## Overview
 
-This repository contains the accompanying implementation for my MSc project on Bayesian inference with non-linear SPDE priors.
+This repository contains the accompanying implementation for '[Iterated INLA for State and Parameter Estimation in Nonlinear Dynamical Systems](https://arxiv.org/abs/2402.17036)'.
 
 ## Dependencies
 
@@ -19,7 +19,6 @@ This repository contains the accompanying implementation for my MSc project on B
 - scikit-learn
 - [scikit-sparse fork with Takahashi equations](https://github.com/rafaelanderka/scikit-sparse)
 - [findiff fork with periodic boundary conditions](https://github.com/rafaelanderka/findiff)
-
 
 ## Usage
 

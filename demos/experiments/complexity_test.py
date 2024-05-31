@@ -5,7 +5,7 @@ from scipy.sparse import identity
 from findiff import FinDiff
 import matplotlib.pyplot as plt
 
-from spdeinf import util
+from iinla import util
 
 np.set_printoptions(threshold=np.inf)
 np.set_printoptions(linewidth=np.inf)

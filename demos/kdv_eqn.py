@@ -8,8 +8,8 @@ from findiff import FinDiff, Coef, Identity
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, WhiteKernel
 
-from spdeinf import util
-from spdeinf.nonlinear import SPDEDynamics, IterativeRegressor
+from iinla import util
+from iinla.nonlinear import SPDEDynamics, IterativeRegressor
 
 # Set seed
 np.random.seed(6)
@@ -123,59 +123,59 @@ dynamics = KdVDynamics(dx, dt)
 # Fit model with GPR #
 ######################
 
-gp_kernel = 1.0 * RBF(length_scale=1.0) + WhiteKernel(noise_level=obs_std**2, noise_level_bounds="fixed")
-gp = GaussianProcessRegressor(kernel=gp_kernel, n_restarts_optimizer=10)
-gp.fit(obs_locs, obs_vals)
-test_locs = [[x, t] for x in xx for t in tt]
-test_locs_t0 = [[x, 0] for x in xx]
-ic_mean, ic_cov = gp.predict(test_locs_t0, return_cov=True)
-ic_std = np.sqrt(np.diag(ic_cov))
+# gp_kernel = 1.0 * RBF(length_scale=1.0) + WhiteKernel(noise_level=obs_std**2, noise_level_bounds="fixed")
+# gp = GaussianProcessRegressor(kernel=gp_kernel, n_restarts_optimizer=10)
+# gp.fit(obs_locs, obs_vals)
+# test_locs = [[x, t] for x in xx for t in tt]
+# test_locs_t0 = [[x, 0] for x in xx]
+# ic_mean, ic_cov = gp.predict(test_locs_t0, return_cov=True)
+# ic_std = np.sqrt(np.diag(ic_cov))
 
-# Save data for other benchmarks
-obs_table = np.empty((obs_count_1, 3))
-obs_table = [[xx[k[0]], tt[k[1]], v] for k, v in obs_dict.items()]
-util.obs_to_csv(obs_table, header="XTU", filename=f"data/KdVTrain{data_id}.csv")
+# # Save data for other benchmarks
+# obs_table = np.empty((obs_count_1, 3))
+# obs_table = [[xx[k[0]], tt[k[1]], v] for k, v in obs_dict.items()]
+# util.obs_to_csv(obs_table, header="XTU", filename=f"data/KdVTrain{data_id}.csv")
 
-u_table = np.empty((N_x * N_t, 3))
-u_table[:,0] = Xgrid.flatten()
-u_table[:,1] = Tgrid.flatten()
-u_table[:,2] = uu.flatten()
-util.obs_to_csv(u_table, header="XTU", filename=f"data/KdVTest.csv")
+# u_table = np.empty((N_x * N_t, 3))
+# u_table[:,0] = Xgrid.flatten()
+# u_table[:,1] = Tgrid.flatten()
+# u_table[:,2] = uu.flatten()
+# util.obs_to_csv(u_table, header="XTU", filename=f"data/KdVTest.csv")
 
-data_dict = {'uu': uu, 'uu_full': uu_full, 'xx': xx, 'xx_full': xx_full, 'tt': tt, 'tt_full': tt_full, 'dx': dx, 'dx_full': dx_full, 'dt': dt, 'dt_full': dt_full, 'u0_mean': ic_mean, 'u0_cov': ic_cov, 'u0_std': ic_std, 'obs_dict': obs_dict, 'obs_std': obs_std}
-data_file = f"data/kdv_{data_id}.pkl"
-with open(data_file, 'wb') as f:
-    pickle.dump(data_dict, f, protocol=pickle.HIGHEST_PROTOCOL)
+# data_dict = {'uu': uu, 'uu_full': uu_full, 'xx': xx, 'xx_full': xx_full, 'tt': tt, 'tt_full': tt_full, 'dx': dx, 'dx_full': dx_full, 'dt': dt, 'dt_full': dt_full, 'u0_mean': ic_mean, 'u0_cov': ic_cov, 'u0_std': ic_std, 'obs_dict': obs_dict, 'obs_std': obs_std}
+# data_file = f"data/kdv_{data_id}.pkl"
+# with open(data_file, 'wb') as f:
+#     pickle.dump(data_dict, f, protocol=pickle.HIGHEST_PROTOCOL)
 
 ##########################################
 # Fit model with iterative linearisation #
 ##########################################
 
-# max_iter = 20
-# model = IterativeRegressor(uu, dynamics, mixing_coef=0.1)
-# model.fit(obs_dict, params, max_iter=max_iter, animated=True, calc_std=True, calc_mnll=True)
+max_iter = 20
+model = IterativeRegressor(uu, dynamics, mixing_coef=0.1)
+model.fit(obs_dict, params, max_iter=max_iter, animated=True, calc_std=True, calc_mnll=True)
 
 ############
 # Plot fit #
 ############
 
-# plt.figure(figsize=(3,3))
-# im_mean = plt.imshow(model.posterior_mean, extent=(0, 1, -1, 1), origin="lower", aspect=.5, rasterized=True, cmap="gnuplot2")
-# plt.xlabel("$t$")
-# plt.ylabel("$x$", labelpad=0)
-# plt.scatter(dt * obs_idxs[:,1], dx * obs_idxs[:,0] - 1, c="white", s=12, marker="o", alpha=1.0, label="Observations")
-# plt.gca().yaxis.set_major_locator(plt.MultipleLocator(0.5))
-# plt.colorbar(im_mean)
-# plt.tight_layout(pad=0)
-# plt.savefig("figures/kdv/kdv_spde.pdf", transparent=True)
+plt.figure(figsize=(3,3))
+im_mean = plt.imshow(model.posterior_mean, extent=(0, 1, -1, 1), origin="lower", aspect=.5, rasterized=True, cmap="gnuplot2")
+plt.xlabel("$t$")
+plt.ylabel("$x$", labelpad=0)
+plt.scatter(dt * obs_idxs[:,1], dx * obs_idxs[:,0] - 1, c="white", s=12, marker="o", alpha=1.0, label="Observations")
+plt.gca().yaxis.set_major_locator(plt.MultipleLocator(0.5))
+plt.colorbar(im_mean)
+plt.tight_layout(pad=0)
+plt.savefig("figures/kdv/kdv_spde.pdf", transparent=True)
 
-# plt.figure(figsize=(3,3))
-# im_std = plt.imshow(model.posterior_std, extent=(0, 1, -1, 1), origin="lower", aspect=.5, rasterized=True, cmap="YlGnBu_r")
-# plt.xlabel("$t$")
-# plt.ylabel("$x$", labelpad=0)
-# plt.scatter(dt * obs_idxs[:,1], dx * obs_idxs[:,0] - 1, c="grey", s=12, marker="o", alpha=1.0, label="Observations")
-# plt.gca().yaxis.set_major_locator(plt.MultipleLocator(0.5))
-# plt.colorbar(im_std)
-# plt.tight_layout(pad=0)
-# plt.savefig("figures/kdv/kdv_spde_std.pdf", transparent=True)
-# plt.show()
+plt.figure(figsize=(3,3))
+im_std = plt.imshow(model.posterior_std, extent=(0, 1, -1, 1), origin="lower", aspect=.5, rasterized=True, cmap="YlGnBu_r")
+plt.xlabel("$t$")
+plt.ylabel("$x$", labelpad=0)
+plt.scatter(dt * obs_idxs[:,1], dx * obs_idxs[:,0] - 1, c="grey", s=12, marker="o", alpha=1.0, label="Observations")
+plt.gca().yaxis.set_major_locator(plt.MultipleLocator(0.5))
+plt.colorbar(im_std)
+plt.tight_layout(pad=0)
+plt.savefig("figures/kdv/kdv_spde_std.pdf", transparent=True)
+plt.show()

@@ -2,7 +2,7 @@ import numpy as np
 from findiff import FinDiff, PDE, BoundaryConditions
 import matplotlib.pyplot as plt
 
-from spdeinf import linear, metrics, util, plotting
+from iinla import linear, metrics, util, plotting
 
 ## Generate data from the heat equation
 

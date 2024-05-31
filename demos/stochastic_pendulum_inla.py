@@ -7,9 +7,10 @@ import matplotlib.pyplot as plt
 import matplotlib.font_manager as font_manager
 from scipy.sparse.linalg import spsolve
 from findiff import FinDiff, Coef, Identity
-from spdeinf import util
-from spdeinf.nonlinear import SPDEDynamics, IterativeINLARegressor
-from spdeinf.distributions import LogNormal
+
+from iinla import util
+from iinla.nonlinear import SPDEDynamics, IterativeINLARegressor
+from iinla.distributions import LogNormal
 
 ######################################################
 # Generate data from stochastic damped pendulum eqn. #
@@ -121,43 +122,40 @@ class PendulumDynamics(SPDEDynamics):
         super().__init__()
         self.dt = dt
 
-    def get_diff_op(self, u0, params, **kwargs):
+    def _update_diff_op(self):
         """
-        Construct current linearised differential operator.
+        Constructs linearised differential operator based on current state.
         """
-        b, c, _, _ = params
+        b = self._params[0]
+        c = self._params[1]
         partial_t = FinDiff(1, self.dt, 1)
         partial_tt = FinDiff(1, self.dt, 2)
-        u0_cos = np.cos(u0)
+        u0_cos = np.cos(self._u0)
         diff_op = partial_tt + Coef(b) * partial_t + Coef(c * u0_cos) * Identity()
         return diff_op
 
-    def get_prior_precision(self, u0, params, **kwargs):
+    def _update_prior_precision(self):
         """
         Calculate current prior precision.
         """
-        diff_op_guess = self.get_diff_op(u0, params, **kwargs)
-        L = util.operator_to_matrix(diff_op_guess, u0.shape, interior_only=False)
-        prior_precision = (self.dt / params[2]**2) * (L.T @ L)
+        prior_precision = (self.dt / self._params[2]**2) * (self._L.T @ self._L)
         return prior_precision
 
-    def get_prior_mean(self, u0, params, **kwargs):
+    def _update_prior_mean(self):
         """
         Calculate current prior mean.
         """
-        b, c, _, _ = params
-        u0_cos = np.cos(u0)
-        u0_sin = np.sin(u0)
-        diff_op = self.get_diff_op(u0, params, **kwargs)
-        diff_op_mat = diff_op.matrix(u0.shape)
-        prior_mean = spsolve(diff_op_mat, (c * (u0 * u0_cos - u0_sin)).flatten())
-        return prior_mean.reshape(u0.shape)
+        c = self._params[1]
+        u0_cos = np.cos(self._u0)
+        u0_sin = np.sin(self._u0)
+        prior_mean = spsolve(self._L, (c * (self._u0 * u0_cos - u0_sin)).flatten())
+        return prior_mean.reshape(self._u0.shape)
 
-    def get_obs_noise(self, params, **kwargs):
+    def _update_obs_noise(self):
         """
         Get observation noise (standard deviation).
         """
-        return params[3]
+        return self._params[3]
 
 dynamics = PendulumDynamics(dt)
 
@@ -165,10 +163,10 @@ dynamics = PendulumDynamics(dt)
 # Fit Nonlinear Pendulum Regressor on data #
 ############################################
 
-max_iter = 20
+max_iter = 10
 parameterisation = 'natural' # 'moment' or 'natural'
 model = IterativeINLARegressor(u, dynamics, param0,
-                               mixing_coef=0.2,
+                               mixing_coef=0.9,
                                param_bounds=param_bounds,
                                param_priors=param_priors,
                                sampling_evec_scales=[0.03, 0.03, 0.03, 0.03],
@@ -223,7 +221,7 @@ samples = np.reshape(samples, (num_samples, -1))
 # print(f"MMD = {mmd}")
 
 weights = np.ones(num_samples) / num_samples
-creds = [50, 60, 70, 80, 90, 95]
+creds = [50, 70, 90]
 
 list_of_intervals = []
 for i in range(samples.shape[1]):

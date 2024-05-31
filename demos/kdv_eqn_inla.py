@@ -10,14 +10,14 @@ from findiff import FinDiff, Coef, Identity
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, WhiteKernel
 
-from spdeinf import util
-from spdeinf.nonlinear import SPDEDynamics, IterativeINLARegressor
-from spdeinf.distributions import LogNormal
+from iinla import util
+from iinla.nonlinear import SPDEDynamics, IterativeINLARegressor
+from iinla.distributions import LogNormal
 
 # General configuration
 data_id = 3 # 0 - 4
 parameterisation = 'natural' # 'moment' or 'natural'
-max_iter = 10 # 10 - 20
+max_iter = 20 # 10 - 20
 
 # Set seed
 np.random.seed(0)
@@ -47,12 +47,6 @@ param0 = np.array([l1_prior_mode, k_prior_mode])
 param_priors = [LogNormal(mu=l1_0, sigma=1/tau_l1),
                 LogNormal(mu=k_0, sigma=1/tau_k)]
 param_bounds = [(0.1, 3.0), (0.001, 0.100)]
-
-fig, ax = plt.subplots(len(param_priors), 1)
-for i, pr in enumerate((param_priors)):
-    domain = np.linspace(*param_bounds[i], 100)
-    ax[i].plot(domain, np.exp(pr.logpdf(domain)))
-plt.show()
 
 # Load Korteweg-de Vries eq. data from PINNs examples
 data = loadmat("data/PINNs/KdV.mat")
@@ -149,13 +143,13 @@ dynamics = KdVDynamics(dx, dt, l2, obs_std)
 # # Fit model with GPR #
 # ######################
 
-# gp_kernel = 1.0 * RBF(length_scale=1.0) + WhiteKernel(noise_level=obs_std**2, noise_level_bounds="fixed")
-# gp = GaussianProcessRegressor(kernel=gp_kernel, n_restarts_optimizer=10)
-# gp.fit(obs_locs, obs_vals)
-# test_locs = [[x, t] for x in xx for t in tt]
-# test_locs_t0 = [[x, 0] for x in xx]
-# ic_mean, ic_cov = gp.predict(test_locs_t0, return_cov=True)
-# ic_std = np.sqrt(np.diag(ic_cov))
+gp_kernel = 1.0 * RBF(length_scale=1.0) + WhiteKernel(noise_level=obs_std**2, noise_level_bounds="fixed")
+gp = GaussianProcessRegressor(kernel=gp_kernel, n_restarts_optimizer=10)
+gp.fit(obs_locs, obs_vals)
+test_locs = [[x, t] for x in xx for t in tt]
+test_locs_t0 = [[x, 0] for x in xx]
+ic_mean, ic_cov = gp.predict(test_locs_t0, return_cov=True)
+ic_std = np.sqrt(np.diag(ic_cov))
 
 #################################
 # Fit model with iterative INLA #
@@ -173,12 +167,13 @@ def kdv(u, t, L, l1, l2):
     return dudt
 
 # Run model forward with initial condition from GPR and prior mean parameters
-u_guess = odeint(kdv, data_dict['u0_mean'], tt, args=(2, param0[0], l2), mxstep=5000).T
+# u_guess = odeint(kdv, data_dict['u0_mean'], tt, args=(2, param0[0], l2), mxstep=5000).T
+u_guess = odeint(kdv, ic_mean, tt, args=(2, param0[0], l2), mxstep=5000).T
 
 # Fit I-INLA model
 model = IterativeINLARegressor(uu, dynamics, param0,
                                u0=u_guess,
-                               mixing_coef=0.5,
+                               mixing_coef=0.8,
                                param_bounds=param_bounds,
                                param_priors=param_priors,
                                sampling_evec_scales=[0.1, 0.1],
