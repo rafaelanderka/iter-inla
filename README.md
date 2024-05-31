@@ -31,7 +31,7 @@ If you found this useful, please consider citing:
 
 ```
 @article{anderka2024iterated,
-  title={Iterated INLA for State and Parameter Estimation in Nonlinear Dynamical Systems},
+  title={Iterated {INLA} for State and Parameter Estimation in Nonlinear Dynamical Systems},
   author={Anderka, Rafael and Deisenroth, Marc Peter and Takao, So},
   journal={Proceedings of the Conference on Uncertainty in Artificial Intelligence},
   year={2024},
