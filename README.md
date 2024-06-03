@@ -9,7 +9,7 @@
 
 ## Overview
 
-This repository contains the accompanying implementation for the UAI paper "Iterated INLA for state and parameter estimation in nonlinear dynamical systems".
+This repository contains the accompanying implementation for the UAI paper "[Iterated INLA for State and Parameter Estimation in Nonlinear Dynamical Systems](https://arxiv.org/abs/2402.17036)".
 
 ## Dependencies
 
@@ -20,13 +20,43 @@ This repository contains the accompanying implementation for the UAI paper "Iter
 - [scikit-sparse fork with Takahashi equations](https://github.com/rafaelanderka/scikit-sparse)
 - [findiff fork with periodic boundary conditions](https://github.com/rafaelanderka/findiff)
 
+# Installation
+
+This Python module depends on the suite-sparse library, which can be installed with your package manager of choice. For example, with `conda` we can install suite-sparse via:
+
+```
+# Install suite-sparse with conda
+conda install -c conda-forge suitesparse
+```
+
+We also need custom forks of the `scikit-sparse` and `findiff` packages, which can be installed via:
+```
+# Install scikit-sparse fork
+git clone https://github.com/rafaelanderka/scikit-sparse.git
+pip install ./scikit-sparse
+```
+and
+```
+# Install findiff fork
+git clone https://github.com/rafaelanderka/findiff.git
+pip install ./findiff
+```
+
+Finally, we can install `iter-inla` with 
+```
+# Install iter-inla
+git clone https://github.com/rafaelanderka/iter-inla.git
+pip install ./iter-inla
+```
+
+The module can then be imported in Python as `iinla`.
 
 ## Usage
 
-The `demos` directory provides practical examples of the framework with interactive animations.
-Additionally, multiple benchmarking scripts are provided in the `benchmarks` directory.
+To get started, please have a look at the `demos` directory, which provides examples with live preview plots.
 
 ## Citing
+
 If you found this useful, please consider citing:
 
 ```
@@ -40,4 +70,5 @@ If you found this useful, please consider citing:
 ```
 
 ## License
+
 MIT

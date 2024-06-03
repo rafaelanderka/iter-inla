@@ -1,24 +1,24 @@
 from setuptools import setup
 
 setup(
-    name='spdeinf',
-    version='0.2.0',    
-    description='Framework for Bayesian inference with nonlinear SPDEs',
-    url='https://github.com/rafaelanderka/spde-inference',
+    name='iter-inla',
+    version='0.3.0',
+    description='A Python implementation of iterated INLA for state and parameter estimation in nonlinear dynamical systems.',
+    url='https://github.com/rafaelanderka/iter-inla',
     author='Rafael Anderka',
     author_email='rafael.anderka.22@ucl.ac.uk',
     license='BSD 2-clause',
-    packages=['spdeinf'],
-    install_requires=['findiff @ git+ssh://git@github.com:rafaelanderka/findiff.git',
-                      'scikit-sparse @ git+ssh://git@github.com:rafaelanderka/scikit-sparse.git',',
+    packages=['iinla'],
+    install_requires=[
                       'scikit-learn',
                       'scipy',
                       'numpy',
                       'matplotlib',
                       'tqdm',
+                      'sdeint',
                       ],
     classifiers=[
-        'Development Status :: 1 - Planning',
+        'Development Status :: 4 - Beta',
         'Intended Audience :: Science/Research',
         'License :: OSI Approved :: BSD License',  
         'Operating System :: POSIX :: Linux',        

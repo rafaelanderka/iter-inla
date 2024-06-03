@@ -1,34 +1,52 @@
+import pickle
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.io import loadmat
-from scipy import sparse
 from scipy.sparse.linalg import spsolve
-from sksparse.cholmod import cholesky
+from scipy.io import loadmat
+from scipy.integrate import odeint
+from scipy.fftpack import diff as psdiff
 from findiff import FinDiff, Coef, Identity
 
-from spdeinf import linear, nonlinear, util
+from sklearn.gaussian_process import GaussianProcessRegressor
+from sklearn.gaussian_process.kernels import RBF, WhiteKernel
 
-# Define true parameters of the Korteweg-de Vries eqn.
+from iinla import util
+from iinla.nonlinear import SPDEDynamics, IterativeINLARegressor
+from iinla.distributions import LogNormal
+
+# General configuration
+data_id = 3 # 0 - 4
+parameterisation = 'natural' # 'moment' or 'natural'
+max_iter = 20 # 10 - 20
+
+# Set seed
+np.random.seed(0)
+
+#########################################
+# Load data from Korteweg-de Vries eqn. #
+#########################################
+
+# Define parameters of the Korteweg-de Vries eqn.
 l1 = 1
 l2 = 0.0025
 obs_std = 1e-3
-params_true = np.array([l1, l2, 1 / obs_std])
+params_true = np.array([l1, l2, obs_std])
 print("True parameters:", params_true)
 
-# Define parameters of the parameter priors
-tau_l1 = 0.1
-l1_prior_mode = 1.0
+# Define parameters of the model parameter priors
+tau_l1 = 1
+l1_prior_mode = 0.5
 l1_0 = np.log(l1_prior_mode) + (tau_l1 ** (-2))
 
-tau_l2 = 0.1
-l2_prior_mode = 0.0025
-l2_0 = np.log(l2_prior_mode) + (tau_l2 ** (-2))
+# Process noise prior
+tau_k = 1
+k_prior_mode = 0.01
+k_0 = np.log(k_prior_mode) + (tau_k ** (-2))
 
-tau_t_obs = 0.1
-t_obs_prior_mode = 10
-t_obs_0 = np.log(t_obs_prior_mode) + (tau_t_obs ** (-2))
-params0 = np.array([l1_prior_mode, l2_prior_mode, t_obs_prior_mode])
-param_bounds = [(0.5, 1.5), (0.001, 0.005), (5, 50)]
+param0 = np.array([l1_prior_mode, k_prior_mode])
+param_priors = [LogNormal(mu=l1_0, sigma=1/tau_l1),
+                LogNormal(mu=k_0, sigma=1/tau_k)]
+param_bounds = [(0.1, 3.0), (0.001, 0.100)]
 
 # Load Korteweg-de Vries eq. data from PINNs examples
 data = loadmat("data/PINNs/KdV.mat")
@@ -41,162 +59,152 @@ dx = xx[1] - xx[0]
 dt = tt[1] - tt[0]
 
 # Sample observations
-obs_count_1 = 50
-obs_count_2 = 50
-obs_loc_1 = np.where(tt == 0.2)[0][0]
-obs_loc_2 = np.where(tt == 0.8)[0][0] + 1
-obs_dict = util.sample_observations(uu, obs_count_1, obs_std, extent=(None, None, obs_loc_1, obs_loc_1+1))
-obs_dict.update(util.sample_observations(uu, obs_count_2, obs_std, extent=(None, None, obs_loc_2, obs_loc_2+1)))
+# obs_count_1 = 20
+# obs_count_2 = 20
+# obs_loc_1 = np.where(tt == 0.2)[0][0]
+# obs_loc_2 = np.where(tt == 0.8)[0][0] + 1
+# obs_dict = util.sample_observations(uu, obs_count_1, obs_std, extent=(None, None, obs_loc_1, obs_loc_1+1))
+# obs_dict.update(util.sample_observations(uu, obs_count_2, obs_std, extent=(None, None, obs_loc_2, obs_loc_2+1)))
+# obs_idxs = np.array(list(obs_dict.keys()), dtype=int)
+# obs_vals = np.array(list(obs_dict.values()), dtype=float)
+# obs_locs = np.array([[xx[i], tt[j]] for i, j in obs_idxs])
+# print("Number of observations:", obs_idxs.shape[0])
+
+# Load observations
+data_file = f"data/kdv_{data_id}.pkl"
+with open(data_file, 'rb') as f:
+    data_dict = pickle.load(f)
+obs_dict = data_dict['obs_dict']
 obs_idxs = np.array(list(obs_dict.keys()), dtype=int)
-print("Number of observations:", obs_idxs.shape[0])
+obs_locs = np.array([[xx[i], tt[j]] for i, j in obs_idxs])
+obs_vals = np.array(list(obs_dict.values()), dtype=float)
 
-################################
-# Diff. op. and mean generator #
-################################
+##########################################
+# Define Korteweg-de Vries eqn. dynamics #
+##########################################
 
-def get_diff_op(u0, dx, dt, params):
+class KdVDynamics(SPDEDynamics):
     """
-    Constructs current linearised differential operator.
+    The parameters of the model are, in order:
+    0. l1
+    1. process amplitude
     """
-    l1, l2, _ = params
-    partial_t = FinDiff(1, dt, 1, acc=2)
-    partial_x = FinDiff(0, dx, 1, acc=2, periodic=True)
-    partial_xxx = FinDiff(0, dx, 3, acc=2, periodic=True)
-    u0_x = partial_x(u0)
-    diff_op = partial_t + Coef(l1 * u0) * partial_x + Coef(l1 * u0_x) * Identity() + Coef(l2) * partial_xxx
-    return diff_op
 
-def get_prior_mean(u0, diff_op_gen, params):
-    """
-    Calculates current prior mean.
-    """
-    l1, _, _ = params
-    partial_x = FinDiff(0, dx, 1, acc=2, periodic=True)
-    u0_x = partial_x(u0)
-    diff_op = diff_op_gen(u0, params)
-    diff_op_mat = diff_op.matrix(u0.shape)
-    prior_mean = spsolve(diff_op_mat, (l1 * u0 * u0_x).flatten())
-    return prior_mean.reshape(u0.shape)
+    def __init__(self, dx, dt, l2, obs_noise) -> None:
+        super().__init__()
+        self.dx = dx
+        self.dt = dt
+        self.l2 = l2
+        self.obs_noise = obs_noise
 
-diff_op_gen = lambda u, params: get_diff_op(u, dx, dt, params)
-prior_mean_gen = lambda u, params: get_prior_mean(u, diff_op_gen, params)
+    def _update_diff_op(self):
+        """
+        Construct current linearised differential operator.
+        """
+        l1 = self._params[0]
+        partial_t = FinDiff(1, self.dt, 1, acc=2)
+        partial_x = FinDiff(0, self.dx, 1, acc=2, periodic=True)
+        partial_xxx = FinDiff(0, self.dx, 3, acc=2, periodic=True)
+        u0_x = partial_x(self._u0)
+        diff_op = partial_t + Coef(l1 * self._u0) * partial_x + Coef(l1 * u0_x) * Identity() + Coef(self.l2) * partial_xxx
+        return diff_op
 
-##################################
-# log-pdf of parameter posterior #
-##################################
+    def _update_prior_precision(self):
+        """
+        Calculate current prior precision.
+        """
+        prior_precision = (self.dt * self.dx / self._params[1]**2) * (self._L.T @ self._L)
+        return prior_precision
 
-def _logpdf_marginal_posterior(l1, l2, t_obs, Q_u, Q_uy, Q_obs, mu_u, mu_uy, obs_dict, shape, regularisation=1e-3):
-    # Unpack parameters
-    obs_idxs = np.array(list(obs_dict.keys()), dtype=int)
-    obs_idxs_flat = shape[1] * obs_idxs[:,0] + obs_idxs[:,1]
-    obs_vals = np.array(list(obs_dict.values()), dtype=float)
+    def _update_prior_mean(self):
+        """
+        Calculate current prior mean.
+        """
+        l1 = self._params[0]
 
-    # Define reused consts.
-    log_2pi = np.log(2 * np.pi)
-    N = Q_obs.shape[0]
-    M = Q_u.shape[0]
+        # Construct linearisation remainder term
+        partial_x = FinDiff(0, self.dx, 1, acc=2, periodic=True)
+        u0_x = partial_x(self._u0)
+        remainder = l1 * self._u0 * u0_x
 
-    # Perform matrix factorisation to compute log determinants
-    Q_u_chol = cholesky(Q_u + regularisation * sparse.identity(Q_u.shape[0]))
-    Q_u_logdet = Q_u_chol.logdet()
-    Q_uy_chol = cholesky(Q_uy)
-    Q_uy_logdet = Q_uy_chol.logdet()
-    Q_obs_chol = cholesky(Q_obs)
-    Q_obs_logdet = Q_obs_chol.logdet()
+        # Compute prior mean
+        prior_mean = spsolve(self._L, remainder.flatten())
+        return prior_mean.reshape(self._u0.shape)
 
-    # Compute l1 prior terms
-    if l1 > 0:
-        log_l1 = np.log(l1)
-        log_p_l1 = np.log(tau_l1) - log_l1 - 0.5 * ((tau_l1 * (log_l1 - l1_0)) ** 2 + log_2pi) # log-normal prior
-    else:
-        log_p_l1 = float("-inf")
+    def _update_obs_noise(self):
+        """
+        Get observation noise (standard deviation).
+        """
+        return self.obs_noise
 
-    # Compute l2 prior terms
-    if l2 > 0:
-        log_l2 = np.log(l2)
-        log_p_l2 = np.log(tau_l2) - log_l2 - 0.5 * ((tau_l2 * (log_l2 - l2_0)) ** 2 + log_2pi) # log-normal prior
-    else:
-        log_p_l2 = float("-inf")
+dynamics = KdVDynamics(dx, dt, l2, obs_std)
 
-    # Compute t_obs prior terms
-    if t_obs > 0:
-        log_t_obs = np.log(t_obs)
-        log_p_t_obs = np.log(tau_t_obs) - log_t_obs - 0.5 * ((tau_t_obs * (log_t_obs - t_obs_0)) ** 2 + log_2pi) # log-normal prior
-    else:
-        log_p_t_obs = float("-inf")
+# ######################
+# # Fit model with GPR #
+# ######################
 
-    # Compute GMRF prior terms
-    diff_mu_uy_mu_u = mu_uy - mu_u
-    log_p_ut = 0.5 * (Q_u_logdet - diff_mu_uy_mu_u.T @ Q_u @ diff_mu_uy_mu_u - M * log_2pi)
+gp_kernel = 1.0 * RBF(length_scale=1.0) + WhiteKernel(noise_level=obs_std**2, noise_level_bounds="fixed")
+gp = GaussianProcessRegressor(kernel=gp_kernel, n_restarts_optimizer=10)
+gp.fit(obs_locs, obs_vals)
+test_locs = [[x, t] for x in xx for t in tt]
+test_locs_t0 = [[x, 0] for x in xx]
+ic_mean, ic_cov = gp.predict(test_locs_t0, return_cov=True)
+ic_std = np.sqrt(np.diag(ic_cov))
 
-    # Compute obs model terms
-    diff_obs_mu_uy = obs_vals - mu_uy[obs_idxs_flat]
-    log_p_yut = 0.5 * (Q_obs_logdet - diff_obs_mu_uy.T @ Q_obs @ diff_obs_mu_uy - N * log_2pi)
+#################################
+# Fit model with iterative INLA #
+#################################
 
-    # Compute full conditional terms
-    log_p_uyt = 0.5 * (Q_uy_logdet - M * log_2pi)
+def kdv(u, t, L, l1, l2):
+    """Differential equations for the KdV equation, discretized in x."""
+    # Compute the x derivatives using the pseudo-spectral method.
+    ux = psdiff(u, period=L)
+    uxxx = psdiff(u, period=L, order=3)
 
-    logpdf = log_p_l1 + log_p_l2 + log_p_t_obs + log_p_ut + log_p_yut - log_p_uyt
-    return logpdf
+    # Compute du/dt.    
+    dudt = -l1*u*ux - l2*uxxx
 
-def logpdf_marginal_posterior(x, u0, obs_dict, diff_op_gen, prior_mean_gen, return_conditional_params=False, debug=False):
-    # Process args
-    obs_count = len(obs_dict.keys())
-    t_obs = x[2]
+    return dudt
 
-    # Compute prior mean
-    prior_mean = prior_mean_gen(u0, x)
+# Run model forward with initial condition from GPR and prior mean parameters
+# u_guess = odeint(kdv, data_dict['u0_mean'], tt, args=(2, param0[0], l2), mxstep=5000).T
+u_guess = odeint(kdv, ic_mean, tt, args=(2, param0[0], l2), mxstep=5000).T
 
-    # Construct precision matrix corresponding to the linear differential operator
-    diff_op_guess = diff_op_gen(u0, x)
-    L = util.operator_to_matrix(diff_op_guess, u0.shape, interior_only=False)
-    prior_precision = L.T @ L
+# Fit I-INLA model
+model = IterativeINLARegressor(uu, dynamics, param0,
+                               u0=u_guess,
+                               mixing_coef=0.8,
+                               param_bounds=param_bounds,
+                               param_priors=param_priors,
+                               sampling_evec_scales=[0.1, 0.1],
+                               sampling_threshold=3)
 
-    # Get "data term" of full conditional
-    res = linear._fit_gmrf(uu, obs_dict, 1 / t_obs, prior_mean, prior_precision, calc_std=return_conditional_params,
-                         include_initial_cond=False, return_posterior_precision=True, regularisation=1e-5)
+model.fit(obs_dict, max_iter=max_iter, parameterisation=parameterisation, animated=True, calc_std=False, calc_mnll=True)
 
-    # Define prior and full condtional params
-    mu_u = prior_mean
-    Q_u = prior_precision
-    mu_uy = res['posterior_mean']
-    Q_uy = res['posterior_precision']
-    Q_obs = sparse.diags([t_obs ** 2], 0, shape=(obs_count, obs_count), format='csc')
+# Save fitted model for further evaluation
+results_file = f"results/kdv_{data_id}_{parameterisation}.pkl"
+with open(results_file, 'wb') as f:
+    pickle.dump(model, f, protocol=pickle.HIGHEST_PROTOCOL)
 
-    if debug:
-        plt.figure()
-        plt.plot(prior_mean[0])
-        plt.show()
+############
+# Plot fit #
+############
 
-    # Compute marginal posterior
-    logpdf = _logpdf_marginal_posterior(x[0], x[1], x[2], Q_u, Q_uy, Q_obs, mu_u.flatten(), mu_uy.flatten(), obs_dict, u0.shape)
-    if return_conditional_params:
-        return logpdf, mu_uy, res['posterior_var']
-    return logpdf
+plt.figure(figsize=(3,3))
+plt.imshow(model.posterior_mean, extent=(0, 1, -1, 1), origin="lower", aspect=.5, rasterized=True, cmap="gnuplot2", vmin=-1, vmax=2.5)
+plt.xlabel("$t$")
+plt.ylabel("$x$", labelpad=0)
+plt.scatter(dt * obs_idxs[:,1], dx * obs_idxs[:,0] - 1, c="white", s=12, marker="o", alpha=1.0, label="Observations")
+plt.gca().yaxis.set_major_locator(plt.MultipleLocator(0.5))
+plt.tight_layout(pad=0)
+plt.savefig("figures/kdv/kdv_spde_inla.pdf", transparent=True)
 
-
-## Fit GP with non-linear SPDE prior from KdV equation
-
-# Perform iterative optimisation
-max_iter = 14
-model = nonlinear.NonlinearINLASPDERegressor(uu, dx, dt, params0, diff_op_gen, prior_mean_gen, logpdf_marginal_posterior,
-                                             mixing_coef=0.5, param_bounds=param_bounds, sampling_evec_scales=[0.001, 0.001, 0.01],
-                                             sampling_threshold=3, params_true=params_true)
-model.fit(obs_dict, obs_std, max_iter=max_iter, animated=True, calc_std=True, calc_mnll=True)
-iter_count = len(model.mse_hist)
-
-# Save animation
-print("Saving animation...")
-model.save_animation("figures/kdv/kdv_inla_2_iter_animation.gif", fps=3)
-plt.show()
-
-# Plot convergence history
-plt.figure()
-plt.plot(np.arange(1, iter_count + 1), model.mse_hist, label="Linearisation via expansion")
-plt.yscale("log")
-plt.xlabel("Iteration")
-plt.ylabel("MSE")
-plt.xticks(np.arange(2, iter_count + 1, 2))
-plt.legend()
-plt.savefig("figures/kdv/mse_conv_inla_2.png", dpi=200)
+plt.figure(figsize=(3,3))
+plt.imshow(model.posterior_std, extent=(0, 1, -1, 1), origin="lower", aspect=.5, rasterized=True, cmap="YlGnBu_r", vmin=0, vmax=0.8)
+plt.xlabel("$t$")
+plt.ylabel("$x$", labelpad=0)
+plt.scatter(dt * obs_idxs[:,1], dx * obs_idxs[:,0] - 1, c="grey", s=12, marker="o", alpha=1.0, label="Observations")
+plt.gca().yaxis.set_major_locator(plt.MultipleLocator(0.5))
+plt.tight_layout(pad=0)
+plt.savefig("figures/kdv/kdv_spde_inla_std.pdf", transparent=True)
 plt.show()
