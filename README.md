@@ -4,12 +4,12 @@
   <br>
 </h1>
 
-<h4 align="center">A Python implementation of iterated INLA for state and parameter estimation with nonlinear SPDEs.</h4>
+<h4 align="center">A framework for state and parameter estimation in nonlinear dynamical systems using iterated INLA.</h4>
 <br>
 
 ## Overview
 
-This repository contains the accompanying implementation for '[Iterated INLA for State and Parameter Estimation in Nonlinear Dynamical Systems](https://arxiv.org/abs/2402.17036)'.
+This repository contains the accompanying implementation for the UAI paper "[Iterated INLA for State and Parameter Estimation in Nonlinear Dynamical Systems](https://arxiv.org/abs/2402.17036)".
 
 ## Dependencies
 
@@ -54,3 +54,21 @@ The module can then be imported in Python as `iinla`.
 ## Usage
 
 To get started, please have a look at the `demos` directory, which provides examples with live preview plots.
+
+## Citing
+
+If you found this useful, please consider citing:
+
+```
+@article{anderka2024iterated,
+  title={Iterated {INLA} for State and Parameter Estimation in Nonlinear Dynamical Systems},
+  author={Anderka, Rafael and Deisenroth, Marc Peter and Takao, So},
+  journal={Proceedings of the Fortieth Conference on Uncertainty in Artificial Intelligence},
+  year={2024},
+  publisher={PMLR}
+}
+```
+
+## License
+
+MIT
